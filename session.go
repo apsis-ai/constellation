@@ -241,16 +241,6 @@ func (m *Manager) QueueLength(sessionID string) int {
 	return n
 }
 
-// IsQueuePaused returns whether the queue is paused for a session.
-func (m *Manager) IsQueuePaused(sessionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.queuePaused == nil {
-		return false
-	}
-	return m.queuePaused[sessionID]
-}
-
 func initDB(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS sessions (
 		id               TEXT PRIMARY KEY,

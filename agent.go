@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -562,12 +563,56 @@ func (m *Manager) ResolveAttachments(sessionID string, ids []string) ([]Attachme
 	return refs, nil
 }
 
-// Handoff and idle timer stubs (fully implemented in Phase 2)
-func (m *Manager) triggerHandoff(sessionID string) {}
-func (m *Manager) resetIdleTimer(sessionID string) {}
+// triggerHandoff initiates a handoff for a session.
+// Uses HandoffHandler if configured, otherwise performs file-based handoff.
+func (m *Manager) triggerHandoff(sessionID string) {
+	var conversationID, lastAgent string
+	err := m.db.QueryRow(`SELECT COALESCE(conversation_id, ''), COALESCE(last_agent, '') FROM sessions WHERE id = ?`, sessionID).Scan(&conversationID, &lastAgent)
+	if err != nil {
+		_, _ = m.db.Exec(`UPDATE sessions SET status = ? WHERE id = ?`, StatusIdle, sessionID)
+		m.mu.Lock()
+		delete(m.idleMap, sessionID)
+		m.mu.Unlock()
+		return
+	}
 
-// ProcessNextFromQueue processes the next queued item (stub for Phase 2).
-func (m *Manager) ProcessNextFromQueue(sessionID string) {}
+	if m.config.HandoffHdl != nil {
+		summary := m.readSummary(sessionID)
+		if err := m.config.HandoffHdl.HandleHandoff(sessionID, summary.Summary, summary.Status, summary.Next); err != nil {
+			log.Printf("handoff for session %s failed: %v", sessionID, err)
+		}
+	}
+
+	_, _ = m.db.Exec(`UPDATE sessions SET status = ?, conversation_id = NULL, screenshot_count = 0 WHERE id = ?`, StatusIdle, sessionID)
+	m.mu.Lock()
+	delete(m.idleMap, sessionID)
+	m.mu.Unlock()
+}
+
+// resetIdleTimer resets the idle timer for a session.
+func (m *Manager) resetIdleTimer(sessionID string) {
+	m.mu.Lock()
+	entry, ok := m.idleMap[sessionID]
+	if !ok {
+		entry = &idleEntry{}
+		m.idleMap[sessionID] = entry
+	}
+	m.mu.Unlock()
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.timer != nil {
+		entry.timer.Stop()
+	}
+	entry.timer = time.AfterFunc(m.config.IdleTimeout, func() {
+		m.triggerHandoff(sessionID)
+	})
+}
+
+// ProcessNextFromQueue processes the next queued item via Send.
+func (m *Manager) ProcessNextFromQueue(sessionID string) {
+	processQueueItem(m, sessionID)
+}
 
 // debounceSummary schedules summary generation (stub for Phase 2).
 func (m *Manager) debounceSummary(sessionID string) {}
