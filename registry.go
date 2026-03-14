@@ -14,19 +14,16 @@ type AgentInfo struct {
 
 // Registry holds known agents and supports static + dynamic registration.
 type Registry struct {
-	mu     sync.RWMutex
-	agents []AgentInfo
+	mu        sync.RWMutex
+	providers *ProviderRegistry
+	overrides map[string]AgentInfo // for agents registered directly
 }
 
-// NewRegistry creates a registry pre-populated with the default agents.
-func NewRegistry() *Registry {
+// NewRegistry creates a registry backed by a ProviderRegistry.
+func NewRegistry(provReg *ProviderRegistry) *Registry {
 	return &Registry{
-		agents: []AgentInfo{
-			{ID: "claude", Name: "Claude", Available: true, DefaultModel: "sonnet"},
-			{ID: "codex", Name: "Codex", Available: true, DefaultModel: "o4-mini"},
-			{ID: "opencode", Name: "OpenCode", Available: true},
-			{ID: "cursor", Name: "Cursor", Available: true},
-		},
+		providers: provReg,
+		overrides: make(map[string]AgentInfo),
 	}
 }
 
@@ -34,18 +31,60 @@ func NewRegistry() *Registry {
 func (r *Registry) ListAgents() []AgentInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]AgentInfo, len(r.agents))
-	copy(out, r.agents)
-	return out
+
+	all := r.providers.ListAll()
+	agents := make([]AgentInfo, 0, len(all)+len(r.overrides))
+
+	seen := make(map[string]bool)
+	for _, info := range all {
+		prov, ok := r.providers.Get(info.ID)
+		available := false
+		defaultModel := ""
+		if ok {
+			available = prov.Validate() == nil
+			defaultModel = prov.DefaultModel()
+		}
+		agents = append(agents, AgentInfo{
+			ID:           info.ID,
+			Name:         info.Name,
+			Available:    available,
+			DefaultModel: defaultModel,
+		})
+		seen[info.ID] = true
+	}
+	for id, info := range r.overrides {
+		if !seen[id] {
+			agents = append(agents, info)
+		}
+	}
+	return agents
 }
 
 // GetAgent returns the agent with the given ID, if found.
 func (r *Registry) GetAgent(id string) (AgentInfo, bool) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for _, a := range r.agents {
-		if a.ID == id {
-			return a, true
+	if info, ok := r.overrides[id]; ok {
+		r.mu.RUnlock()
+		return info, true
+	}
+	r.mu.RUnlock()
+
+	all := r.providers.ListAll()
+	for _, info := range all {
+		if info.ID == id {
+			prov, ok := r.providers.Get(id)
+			available := false
+			defaultModel := ""
+			if ok {
+				available = prov.Validate() == nil
+				defaultModel = prov.DefaultModel()
+			}
+			return AgentInfo{
+				ID:           info.ID,
+				Name:         info.Name,
+				Available:    available,
+				DefaultModel: defaultModel,
+			}, true
 		}
 	}
 	return AgentInfo{}, false
@@ -55,22 +94,11 @@ func (r *Registry) GetAgent(id string) (AgentInfo, bool) {
 func (r *Registry) Register(info AgentInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for i, a := range r.agents {
-		if a.ID == info.ID {
-			r.agents[i] = info
-			return
-		}
-	}
-	r.agents = append(r.agents, info)
+	r.overrides[info.ID] = info
 }
 
-// Discover runs CLI discovery for each agent to check availability.
-// This checks if the binary is on PATH and updates the Available field.
+// Discover checks binary availability for all agents.
 func (r *Registry) Discover() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i := range r.agents {
-		_, err := resolveAgentBinary(r.agents[i].ID)
-		r.agents[i].Available = err == nil
-	}
+	// Provider-backed agents auto-discover via Validate()
+	// No-op for the new implementation since ListAgents calls Validate() dynamically
 }

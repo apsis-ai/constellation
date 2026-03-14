@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	mux "github.com/prxg22/agents-mux"
+	mux "github.com/apsis-ai/constellation"
 )
 
 // Styles

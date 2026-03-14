@@ -54,6 +54,7 @@ type Manager struct {
 	lastActions     map[string]*ActionStatus
 	lastUserMessage map[string]string
 	broadcast       *SessionBroadcaster
+	providers       *ProviderRegistry
 	mu              sync.Mutex
 	fileMu          sync.Map
 	summaryTimers   sync.Map
@@ -105,6 +106,17 @@ func NewManager(cfg Config) (*Manager, error) {
 		return nil, fmt.Errorf("init database: %w", err)
 	}
 
+	parsers := NewParserRegistry()
+	provReg, err := NewProviderRegistry(db, parsers)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("init provider registry: %w", err)
+	}
+	if err := provReg.RegisterBuiltins(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("register builtins: %w", err)
+	}
+
 	m := &Manager{
 		db:              db,
 		config:          cfg,
@@ -116,6 +128,7 @@ func NewManager(cfg Config) (*Manager, error) {
 		lastActions:     make(map[string]*ActionStatus),
 		lastUserMessage: make(map[string]string),
 		broadcast:       NewSessionBroadcaster(cfg.RingBufferSize),
+		providers:       provReg,
 	}
 	return m, nil
 }
@@ -128,6 +141,11 @@ func (m *Manager) Close() error {
 // GetBroadcaster returns the session event broadcaster.
 func (m *Manager) GetBroadcaster() *SessionBroadcaster {
 	return m.broadcast
+}
+
+// GetProviders returns the provider registry.
+func (m *Manager) GetProviders() *ProviderRegistry {
+	return m.providers
 }
 
 // CreateSession creates an empty session row.

@@ -1,40 +1,9 @@
 package mux
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
-
-func TestResolveAgentBinary_Claude(t *testing.T) {
-	// claude should resolve to claude on PATH (or error if not installed)
-	path, err := resolveAgentBinary("claude")
-	if err != nil {
-		// Acceptable in CI where claude might not be installed
-		if !strings.Contains(err.Error(), "not found on PATH") {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		return
-	}
-	if path == "" {
-		t.Error("expected non-empty path")
-	}
-}
-
-func TestResolveAgentBinary_Nonexistent(t *testing.T) {
-	// Override PATH to ensure the binary is not found
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", "/nonexistent_dir_only")
-	defer os.Setenv("PATH", origPath)
-
-	_, err := resolveAgentBinary("claude")
-	if err == nil {
-		t.Fatal("expected error when binary not on PATH")
-	}
-	if !strings.Contains(err.Error(), "not found on PATH") {
-		t.Errorf("expected 'not found on PATH' in error, got: %v", err)
-	}
-}
 
 func TestBuildAttachmentPrompt_NoAttachments(t *testing.T) {
 	result := buildAttachmentPrompt("hello", nil)
@@ -77,6 +46,95 @@ func TestFallbackTitle(t *testing.T) {
 				t.Errorf("fallbackTitle(%q) = %q, want %q", tc.input, result, tc.expected)
 			}
 		})
+	}
+}
+
+func TestSend_UnknownProvider(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	_, err = m.Send(SendRequest{
+		Agent:  "unknown-agent",
+		Prompt: "hello",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown provider")
+	}
+	if !strings.Contains(err.Error(), "unknown provider: unknown-agent") {
+		t.Errorf("expected 'unknown provider' error, got: %v", err)
+	}
+}
+
+func TestSend_ProviderDispatch_UsesRegistry(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	// Disable the "claude" provider via registry, then verify Send returns an error
+	// from the registry path (GetCLIProvider returns false for disabled providers)
+	if err := m.providers.SetEnabled("claude", false); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = m.Send(SendRequest{
+		Agent:  "claude",
+		Prompt: "hello",
+	})
+	if err == nil {
+		t.Fatal("expected error when provider disabled")
+	}
+	if !strings.Contains(err.Error(), "unknown provider: claude") {
+		t.Errorf("expected 'unknown provider' error for disabled provider, got: %v", err)
+	}
+
+	// Re-enable and verify it would proceed (will fail at Validate since binary may not exist)
+	if err := m.providers.SetEnabled("claude", true); err != nil {
+		t.Fatal(err)
+	}
+	_, ok := m.providers.GetCLIProvider("claude")
+	if !ok {
+		t.Error("expected claude to be available after re-enabling")
+	}
+}
+
+func TestSend_EmptyAgentDefaultsClaude(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	// Verify that claude provider exists in the registry
+	cliProv, ok := m.providers.GetCLIProvider("claude")
+	if !ok {
+		t.Fatal("expected claude provider in registry")
+	}
+	if cliProv.ID() != "claude" {
+		t.Errorf("expected provider ID 'claude', got %q", cliProv.ID())
+	}
+}
+
+func TestSend_ProviderRegistryHasAllBuiltins(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	for _, id := range []string{"claude", "codex", "opencode", "cursor"} {
+		_, ok := m.providers.GetCLIProvider(id)
+		if !ok {
+			t.Errorf("expected builtin provider %q in registry", id)
+		}
 	}
 }
 

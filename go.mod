@@ -1,4 +1,4 @@
-module github.com/prxg22/agents-mux
+module github.com/apsis-ai/constellation
 
 go 1.24.2
 

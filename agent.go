@@ -32,24 +32,6 @@ func parseStatusMarker(text string) (cleaned string, status string) {
 	return cleaned, status
 }
 
-// resolveAgentBinary returns the path to the CLI binary for the given agent.
-func resolveAgentBinary(agent string) (string, error) {
-	bin := "claude"
-	switch agent {
-	case "codex":
-		bin = "codex"
-	case "opencode":
-		bin = "opencode"
-	case "cursor":
-		bin = "agent"
-	}
-	path, err := exec.LookPath(bin)
-	if err != nil {
-		return "", fmt.Errorf("%s not found on PATH: %w", bin, err)
-	}
-	return path, nil
-}
-
 // Send sends a prompt to an agent, spawning a subprocess.
 func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	sessionID := req.SessionID
@@ -128,31 +110,57 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 
 	m.setUserMessage(sessionID, req.Prompt)
 
-	agentPath, err := resolveAgentBinary(agent)
-	if err != nil {
-		return nil, err
+	// Get provider from registry
+	cliProv, ok := m.providers.GetCLIProvider(agent)
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", agent)
 	}
 
-	// Build command based on agent type
-	var parser func(io.Reader, chan<- ChanEvent) streamResult
-	var cmd *exec.Cmd
-
-	switch agent {
-	case "codex":
-		cmd, parser = m.buildCodexCommand(agentPath, sessionID, prompt, req, attachments)
-	case "opencode":
-		cmd, parser = m.buildOpenCodeCommand(agentPath, sessionID, prompt, req, conversationID, attachments)
-	case "cursor":
-		cmd, parser = m.buildCursorCommand(agentPath, sessionID, prompt, req, conversationID, attachments)
-	default: // claude
-		cmd, parser = m.buildClaudeCommand(agentPath, sessionID, prompt, req, conversationID, attachments)
+	if err := cliProv.Validate(); err != nil {
+		return nil, fmt.Errorf("provider %s not available: %w", agent, err)
 	}
 
+	// Build MCP config
+	mcpConfig := ""
+	if m.config.MCPProvider != nil {
+		mcpConfig, _ = m.config.MCPProvider.MCPConfig(sessionID, agent)
+	}
+
+	// Resolve environment
+	var env []string
 	if m.config.AgentEnv != nil {
-		cmd.Env = m.config.AgentEnv()
+		env = m.config.AgentEnv()
 	} else {
-		cmd.Env = os.Environ()
+		env = os.Environ()
 	}
+
+	provReq := ProviderRequest{
+		SessionID:      sessionID,
+		Prompt:         prompt,
+		Model:          req.Model,
+		Effort:         req.Effort,
+		SubAgent:       req.AgentSub,
+		ConversationID: conversationID,
+		Attachments:    attachments,
+		MCPConfig:      mcpConfig,
+		Env:            env,
+	}
+
+	cmd, err := cliProv.BuildCommand(provReq)
+	if err != nil {
+		return nil, fmt.Errorf("build command for %s: %w", agent, err)
+	}
+
+	outputParser, err := cliProv.GetParser(m.parserCallbacks(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("get parser for %s: %w", agent, err)
+	}
+
+	var parser func(io.Reader, chan<- ChanEvent) streamResult
+	parser = func(r io.Reader, ch chan<- ChanEvent) streamResult {
+		return outputParser.Parse(context.Background(), sessionID, r, ch)
+	}
+
 	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -250,7 +258,7 @@ func (m *Manager) generateTitle(prompt string) string {
 	if len(prompt) > 500 {
 		prompt = prompt[:500]
 	}
-	agentPath, err := resolveAgentBinary("claude")
+	agentPath, err := exec.LookPath("claude")
 	if err != nil {
 		return fallbackTitle(prompt)
 	}
@@ -274,114 +282,6 @@ func (m *Manager) generateTitle(prompt string) string {
 		title = title[:50]
 	}
 	return title
-}
-
-// buildClaudeCommand builds the exec.Cmd for claude agent.
-func (m *Manager) buildClaudeCommand(agentPath, sessionID, prompt string, req SendRequest, conversationID string, attachments []AttachmentRef) (*exec.Cmd, func(io.Reader, chan<- ChanEvent) streamResult) {
-	mcpConfig := ""
-	if m.config.MCPProvider != nil {
-		mcpConfig, _ = m.config.MCPProvider.MCPConfig(sessionID, "claude")
-	}
-
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
-
-	if mcpConfig != "" {
-		mcpDir := filepath.Join(os.TempDir(), "constellation-mcp")
-		os.MkdirAll(mcpDir, 0755)
-		mcpPath := filepath.Join(mcpDir, fmt.Sprintf("mcp-%s.json", sessionID))
-		os.WriteFile(mcpPath, []byte(mcpConfig), 0644)
-		args = append(args, "--mcp-config", mcpPath)
-	}
-	if req.Model != "" {
-		args = append(args, "--model", req.Model)
-	}
-	if req.Effort != "" {
-		args = append(args, "--effort", req.Effort)
-	}
-	if req.AgentSub != "" && req.AgentSub != "default" {
-		args = append(args, "--agent", req.AgentSub)
-	}
-	if conversationID != "" {
-		args = append(args, "--resume", conversationID)
-	}
-	prompt = buildAttachmentPrompt(prompt, attachments)
-	args = append(args, "--", prompt)
-
-	cmd := exec.Command(agentPath, args...)
-	parser := func(r io.Reader, ch chan<- ChanEvent) streamResult {
-		return m.streamClaudeOutput(sessionID, r, ch)
-	}
-	return cmd, parser
-}
-
-func (m *Manager) buildCodexCommand(agentPath, sessionID, prompt string, req SendRequest, attachments []AttachmentRef) (*exec.Cmd, func(io.Reader, chan<- ChanEvent) streamResult) {
-	args := []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox"}
-	if req.Model != "" {
-		args = append(args, "-m", req.Model)
-	}
-	prompt = buildAttachmentPrompt(prompt, attachments)
-	args = append(args, "--", prompt)
-	cmd := exec.Command(agentPath, args...)
-	parser := func(r io.Reader, ch chan<- ChanEvent) streamResult {
-		return m.streamCodexOutput(sessionID, r, ch)
-	}
-	return cmd, parser
-}
-
-func (m *Manager) buildOpenCodeCommand(agentPath, sessionID, prompt string, req SendRequest, conversationID string, attachments []AttachmentRef) (*exec.Cmd, func(io.Reader, chan<- ChanEvent) streamResult) {
-	args := []string{"run", "--format", "json"}
-	if req.Model != "" {
-		args = append(args, "-m", req.Model)
-	}
-	if req.Effort != "" {
-		args = append(args, "--variant", req.Effort)
-	}
-	if req.AgentSub != "" && req.AgentSub != "default" {
-		args = append(args, "--agent", req.AgentSub)
-	}
-	if conversationID != "" {
-		args = append(args, "-s", conversationID)
-	}
-	for _, att := range attachments {
-		args = append(args, "--file", att.Path)
-	}
-	args = append(args, "--", prompt)
-	cmd := exec.Command(agentPath, args...)
-	parser := func(r io.Reader, ch chan<- ChanEvent) streamResult {
-		return m.streamOpenCodeOutput(sessionID, r, ch)
-	}
-	return cmd, parser
-}
-
-func (m *Manager) buildCursorCommand(agentPath, sessionID, prompt string, req SendRequest, conversationID string, attachments []AttachmentRef) (*exec.Cmd, func(io.Reader, chan<- ChanEvent) streamResult) {
-	mcpConfig := ""
-	if m.config.MCPProvider != nil {
-		mcpConfig, _ = m.config.MCPProvider.MCPConfig(sessionID, "cursor")
-	}
-
-	cursorWorkspace := filepath.Join(os.TempDir(), "constellation-cursor")
-	cursorDir := filepath.Join(cursorWorkspace, ".cursor")
-	os.MkdirAll(cursorDir, 0755)
-	if mcpConfig != "" {
-		os.WriteFile(filepath.Join(cursorDir, "mcp.json"), []byte(mcpConfig), 0644)
-	}
-
-	args := []string{"-p", "--output-format", "stream-json", "--stream-partial-output", "--force", "--approve-mcps", "--trust", "--workspace", cursorWorkspace}
-	if req.Model != "" {
-		args = append(args, "--model", req.Model)
-	}
-	if conversationID != "" {
-		args = append(args, "--resume", conversationID)
-	}
-	prompt = buildAttachmentPrompt(prompt, attachments)
-	args = append(args, "--", prompt)
-
-	cmd := exec.Command(agentPath, args...)
-	cmd.Dir = cursorWorkspace
-	parser := func(r io.Reader, ch chan<- ChanEvent) streamResult {
-		return m.streamCursorOutput(sessionID, r, ch)
-	}
-	return cmd, parser
 }
 
 // buildAttachmentPrompt prepends file path references to a prompt.

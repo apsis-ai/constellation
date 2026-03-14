@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	mux "github.com/prxg22/agents-mux"
+	mux "github.com/apsis-ai/constellation"
 )
 
 var (

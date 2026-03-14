@@ -5,13 +5,19 @@ import (
 )
 
 func TestNewRegistry_DefaultAgents(t *testing.T) {
-	r := NewRegistry()
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	r := NewRegistry(m.providers)
 	agents := r.ListAgents()
 	if len(agents) == 0 {
 		t.Fatal("expected at least one default agent")
 	}
 
-	// Should have claude at minimum
 	found := false
 	for _, a := range agents {
 		if a.ID == "claude" {
@@ -27,7 +33,14 @@ func TestNewRegistry_DefaultAgents(t *testing.T) {
 }
 
 func TestRegistry_RegisterAgent(t *testing.T) {
-	r := NewRegistry()
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	r := NewRegistry(m.providers)
 	r.Register(AgentInfo{
 		ID:        "custom-agent",
 		Name:      "Custom Agent",
@@ -50,7 +63,14 @@ func TestRegistry_RegisterAgent(t *testing.T) {
 }
 
 func TestRegistry_GetAgent(t *testing.T) {
-	r := NewRegistry()
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	r := NewRegistry(m.providers)
 	a, ok := r.GetAgent("claude")
 	if !ok {
 		t.Fatal("expected claude to be found")
@@ -66,7 +86,14 @@ func TestRegistry_GetAgent(t *testing.T) {
 }
 
 func TestRegistry_DefaultAgentList(t *testing.T) {
-	r := NewRegistry()
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	r := NewRegistry(m.providers)
 	agents := r.ListAgents()
 
 	expectedIDs := map[string]bool{

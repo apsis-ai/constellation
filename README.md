@@ -4,7 +4,7 @@
   <img src="assets/brand/svg/constellation_logo_dark.svg" alt="Constellation" width="320" />
 </p>
 
-Constellation is an orchestration library for multiplexing AI agent CLIs. It currently ships under the compatibility module path and CLI binary name `agents-mux`.
+Constellation is an orchestration library for multiplexing AI agent CLIs. It publishes under the module path `github.com/apsis-ai/constellation` and currently keeps the CLI binary name `agents-mux`.
 
 ## Features
 
@@ -21,10 +21,10 @@ Constellation is an orchestration library for multiplexing AI agent CLIs. It cur
 
 ## Installation
 
-The public module path remains `github.com/prxg22/agents-mux` for compatibility in this pass.
+The public module path is `github.com/apsis-ai/constellation`.
 
 ```bash
-go get github.com/prxg22/agents-mux
+go get github.com/apsis-ai/constellation
 ```
 
 Requires Go 1.24+.
@@ -38,7 +38,7 @@ import (
     "fmt"
     "log"
 
-    mux "github.com/prxg22/agents-mux"
+    mux "github.com/apsis-ai/constellation"
 )
 
 func main() {
@@ -93,7 +93,7 @@ func main() {
 
 ## Related Projects
 
-- **[Perigee](https://github.com/prxg22/ai-remote-screen)** — Remote desktop workspace. This library was extracted from its session management. Both projects are co-developed and may be modified together.
+- **[Perigee](https://github.com/apsis-ai/perigee)** — Remote desktop workspace. This library was extracted from its session management. Both projects are co-developed and may be modified together.
 
 ## Requirements
 

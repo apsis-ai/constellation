@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	mux "github.com/prxg22/agents-mux"
+	mux "github.com/apsis-ai/constellation"
 )
 
 // --- session ---
@@ -287,7 +287,12 @@ var agentsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available agents",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		registry := mux.NewRegistry()
+		mgr, err := newManager()
+		if err != nil {
+			return err
+		}
+		defer mgr.Close()
+		registry := mux.NewRegistry(mgr.GetProviders())
 		registry.Discover()
 		agents := registry.ListAgents()
 

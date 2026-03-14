@@ -1,6 +1,6 @@
 # API Reference
 
-Constellation currently publishes this API under the compatibility module path `github.com/prxg22/agents-mux`.
+Constellation currently publishes this API under the module path `github.com/apsis-ai/constellation`.
 
 ## Manager
 
@@ -215,7 +215,7 @@ func (r *Registry) Discover()
 ## Whisper Transcriber
 
 ```go
-import "github.com/prxg22/agents-mux/whisper"
+import "github.com/apsis-ai/constellation/whisper"
 
 t := whisper.NewTranscriber()
 text, err := t.Transcribe("/path/to/audio.wav", "en")
