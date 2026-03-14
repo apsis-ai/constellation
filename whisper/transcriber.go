@@ -14,7 +14,7 @@ const (
 	DefaultModel = "ggml-medium.bin"
 	MaxFileSize  = 10 << 20 // 10MB
 	BaseTimeout  = 30 * time.Second
-	TimeoutPerMB = 20 * time.Second // scale timeout with file size
+	TimeoutPerMB = 20 * time.Second  // scale timeout with file size
 	MaxTimeout   = 180 * time.Second // cap at 3 minutes for large files
 )
 

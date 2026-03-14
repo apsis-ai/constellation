@@ -82,9 +82,9 @@ func TestFallbackTitle(t *testing.T) {
 
 func TestParseStatusMarker(t *testing.T) {
 	tests := []struct {
-		input          string
-		expectCleaned  string
-		expectStatus   string
+		input         string
+		expectCleaned string
+		expectStatus  string
 	}{
 		{"hello [STATUS: working] world", "hello  world", "working"},
 		{"no marker here", "no marker here", ""},

@@ -115,7 +115,7 @@ type IOLock struct {
 type ChanEventType int
 
 const (
-	ChanText    ChanEventType = iota
+	ChanText ChanEventType = iota
 	ChanAction
 	ChanAskUser
 )
