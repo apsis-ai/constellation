@@ -13,7 +13,7 @@ import (
 type DefaultEnvProvider struct {
 	once sync.Once
 	// Base is the root directory for isolated config dirs.
-	// If empty, defaults to os.TempDir()/agents-mux-config.
+	// If empty, defaults to os.TempDir()/constellation-config.
 	Base string
 	// SymlinkPaths maps config items to symlink. Optional customization.
 	// Keys are destination relative paths, values are source absolute paths.
@@ -34,7 +34,37 @@ func (p *DefaultEnvProvider) base() string {
 	if p.Base != "" {
 		return p.Base
 	}
-	return filepath.Join(os.TempDir(), "agents-mux-config")
+	return filepath.Join(os.TempDir(), "constellation-config")
+}
+
+// defaultAuthSymlinks returns symlinks needed to propagate CLI auth into isolated dirs.
+// Each entry maps a relative destination (under base) to an absolute source path.
+func defaultAuthSymlinks() map[string]string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return nil
+	}
+	links := make(map[string]string)
+
+	// Codex: auth.json holds OAuth/API tokens
+	codexAuth := filepath.Join(home, ".codex", "auth.json")
+	if _, err := os.Stat(codexAuth); err == nil {
+		links["codex/auth.json"] = codexAuth
+	}
+
+	// Codex: config.toml holds model preferences and settings
+	codexConfig := filepath.Join(home, ".codex", "config.toml")
+	if _, err := os.Stat(codexConfig); err == nil {
+		links["codex/config.toml"] = codexConfig
+	}
+
+	// OpenCode: opencode.json holds provider config and model settings
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	if _, err := os.Stat(opencodeConfig); err == nil {
+		links["opencode/opencode.json"] = opencodeConfig
+	}
+
+	return links
 }
 
 func (p *DefaultEnvProvider) setup() {
@@ -49,7 +79,14 @@ func (p *DefaultEnvProvider) setup() {
 	os.MkdirAll(codexDir, 0755)
 	os.MkdirAll(opencodeDir, 0755)
 
-	// Apply custom symlinks if configured
+	// Symlink auth files from real config dirs so agents inherit system auth
+	for dst, src := range defaultAuthSymlinks() {
+		dstPath := filepath.Join(base, dst)
+		os.MkdirAll(filepath.Dir(dstPath), 0755)
+		symlinkIfMissing(src, dstPath)
+	}
+
+	// Apply custom symlinks (override defaults if overlapping)
 	for dst, src := range p.SymlinkPaths {
 		dstPath := filepath.Join(base, dst)
 		os.MkdirAll(filepath.Dir(dstPath), 0755)

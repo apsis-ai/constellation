@@ -125,6 +125,85 @@ func TestSymlinkIfMissing(t *testing.T) {
 	symlinkIfMissing(src, dst)
 }
 
+func TestDefaultEnvProvider_SymlinksAuthFiles(t *testing.T) {
+	// Create fake "home" with codex auth
+	fakeHome := t.TempDir()
+	codexDir := filepath.Join(fakeHome, ".codex")
+	os.MkdirAll(codexDir, 0755)
+	os.WriteFile(filepath.Join(codexDir, "auth.json"), []byte(`{"token":"test"}`), 0600)
+	os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(`[model]`), 0644)
+
+	// Create fake opencode config
+	opencodeDir := filepath.Join(fakeHome, ".config", "opencode")
+	os.MkdirAll(opencodeDir, 0755)
+	os.WriteFile(filepath.Join(opencodeDir, "opencode.json"), []byte(`{}`), 0644)
+
+	// Override HOME so defaultAuthSymlinks() finds our fake files
+	t.Setenv("HOME", fakeHome)
+
+	base := t.TempDir()
+	p := &DefaultEnvProvider{Base: base}
+	_ = p.AgentEnv()
+
+	// Verify codex auth.json was symlinked
+	codexAuthLink := filepath.Join(base, "codex", "auth.json")
+	info, err := os.Lstat(codexAuthLink)
+	if err != nil {
+		t.Fatalf("expected codex/auth.json symlink: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("expected codex/auth.json to be a symlink")
+	}
+
+	// Verify codex config.toml was symlinked
+	codexConfigLink := filepath.Join(base, "codex", "config.toml")
+	info, err = os.Lstat(codexConfigLink)
+	if err != nil {
+		t.Fatalf("expected codex/config.toml symlink: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("expected codex/config.toml to be a symlink")
+	}
+
+	// Verify opencode config was symlinked
+	opencodeConfigLink := filepath.Join(base, "opencode", "opencode.json")
+	info, err = os.Lstat(opencodeConfigLink)
+	if err != nil {
+		t.Fatalf("expected opencode/opencode.json symlink: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("expected opencode/opencode.json to be a symlink")
+	}
+}
+
+func TestDefaultEnvProvider_NoAuthFiles_NoError(t *testing.T) {
+	// HOME points to empty dir — no auth files exist
+	t.Setenv("HOME", t.TempDir())
+
+	base := t.TempDir()
+	p := &DefaultEnvProvider{Base: base}
+	env := p.AgentEnv()
+
+	// Should not panic or error, just skip symlinks
+	if len(env) == 0 {
+		t.Error("expected non-empty env")
+	}
+
+	// codex dir should exist but no auth.json symlink
+	codexAuthLink := filepath.Join(base, "codex", "auth.json")
+	if _, err := os.Lstat(codexAuthLink); err == nil {
+		t.Error("expected no codex/auth.json when source doesn't exist")
+	}
+}
+
+func TestDefaultAuthSymlinks_ReturnsNilWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	links := defaultAuthSymlinks()
+	if links != nil && len(links) > 0 {
+		t.Error("expected nil or empty map when HOME is empty")
+	}
+}
+
 // envToMap converts an env slice to a map for easier testing.
 func envToMap(env []string) map[string]string {
 	m := make(map[string]string)
