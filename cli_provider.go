@@ -24,8 +24,11 @@ type CLIProviderConfig struct {
 	EnvVars        map[string]string `json:"env_vars,omitempty"`
 	DefaultModelID string            `json:"default_model,omitempty"`
 	// AttachmentMode: "prompt" (prefix to prompt) or "flag" (--file per attachment)
-	AttachmentMode string `json:"attachment_mode,omitempty"`
-	AttachmentFlag string `json:"attachment_flag,omitempty"`
+	AttachmentMode string   `json:"attachment_mode,omitempty"`
+	AttachmentFlag string   `json:"attachment_flag,omitempty"`
+	Models         []string `json:"models,omitempty"`
+	Efforts        []string `json:"efforts,omitempty"`
+	SubAgents      []string `json:"sub_agents,omitempty"`
 }
 
 // CLIProvider executes prompts via CLI subprocess.
@@ -165,6 +168,8 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			MCPMode:        "flag",
 			DefaultModelID: "sonnet",
 			AttachmentMode: "prompt",
+			Models:         []string{"sonnet", "opus"},
+			Efforts:        []string{"low", "medium", "high"},
 		},
 		{
 			ProviderID:     "codex",
@@ -176,6 +181,7 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			ModelFlag:      "-m",
 			DefaultModelID: "o4-mini",
 			AttachmentMode: "prompt",
+			Models:         []string{"o3", "codex-mini-latest"},
 		},
 		{
 			ProviderID:     "opencode",
@@ -190,10 +196,11 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			SubAgentFlag:   "--agent",
 			AttachmentMode: "flag",
 			AttachmentFlag: "--file",
+			Efforts:        []string{"minimal", "high", "max"},
 		},
 		{
-			ProviderID:     "cursor",
-			Name:           "Cursor",
+			ProviderID:     "agent",
+			Name:           "Agent",
 			Binary:         "agent",
 			BaseArgs:       []string{"-p", "--output-format", "stream-json", "--stream-partial-output", "--force", "--approve-mcps", "--trust"},
 			ParserType:     "cursor",

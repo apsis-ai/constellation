@@ -100,7 +100,7 @@ func TestRegistry_DefaultAgentList(t *testing.T) {
 		"claude":   false,
 		"codex":    false,
 		"opencode": false,
-		"cursor":   false,
+		"agent":    false,
 	}
 	for _, a := range agents {
 		if _, want := expectedIDs[a.ID]; want {

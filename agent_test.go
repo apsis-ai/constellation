@@ -130,7 +130,7 @@ func TestSend_ProviderRegistryHasAllBuiltins(t *testing.T) {
 	}
 	defer m.Close()
 
-	for _, id := range []string{"claude", "codex", "opencode", "cursor"} {
+	for _, id := range []string{"claude", "codex", "opencode", "agent"} {
 		_, ok := m.providers.GetCLIProvider(id)
 		if !ok {
 			t.Errorf("expected builtin provider %q in registry", id)

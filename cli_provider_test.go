@@ -119,7 +119,7 @@ func TestCLIProvider_SupportsResume(t *testing.T) {
 		"claude":   true,
 		"codex":    false,
 		"opencode": true,
-		"cursor":   true,
+		"agent":    true,
 	}
 	for _, cfg := range configs {
 		p := NewCLIProvider(cfg, parsers)

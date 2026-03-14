@@ -26,7 +26,7 @@ func TestProviderRegistry_RegisterBuiltins(t *testing.T) {
 		t.Errorf("expected 4 providers, got %d", len(providers))
 	}
 
-	for _, id := range []string{"claude", "codex", "opencode", "cursor"} {
+	for _, id := range []string{"claude", "codex", "opencode", "agent"} {
 		p, ok := reg.Get(id)
 		if !ok {
 			t.Errorf("expected provider %s to be registered", id)
