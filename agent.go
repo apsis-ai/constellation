@@ -201,6 +201,7 @@ func (m *Manager) runAgentLoop(sessionID, agent string, req SendRequest, cmd *ex
 	cmd.Wait()
 
 	m.clearAction(sessionID)
+	m.ReleaseIOLock(sessionID)
 	m.mu.Lock()
 	delete(m.activeProcesses, sessionID)
 	wasStopped := m.stoppedSessions[sessionID]

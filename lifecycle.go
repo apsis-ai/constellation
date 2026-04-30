@@ -43,6 +43,7 @@ func (m *Manager) HandleHandoff(sessionID, summary, currentState, pendingTasks s
 
 // Stop kills the active process for a session, if any.
 func (m *Manager) Stop(sessionID string) error {
+	m.ReleaseIOLock(sessionID)
 	m.mu.Lock()
 	proc, ok := m.activeProcesses[sessionID]
 	if ok {
@@ -142,8 +143,9 @@ func (m *Manager) StopAll() []error {
 	// Mark all active sessions as idle and clear PIDs in the DB.
 	_, _ = m.db.Exec(`UPDATE sessions SET status = ?, pid = 0 WHERE status = ? OR pid > 0`, StatusIdle, StatusActive)
 
-	// Broadcast terminal events so SSE clients clear sending state.
+	// Release I/O lock and broadcast terminal events so SSE clients clear sending state.
 	for _, id := range ids {
+		m.ReleaseIOLock(id)
 		m.broadcast.PublishDone(id, "")
 		m.broadcast.PublishStatus(id, "idle", "", "", "", m.QueueLength(id), m.IsQueuePaused(id))
 	}

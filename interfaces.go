@@ -44,6 +44,16 @@ type Transcriber interface {
 	Transcribe(audioPath, language string) (string, error)
 }
 
+// IOLocker abstracts I/O lock management for session lifecycle.
+// Implementations serialize access to shared resources (e.g., screen input)
+// so only one session controls them at a time. The Manager calls ReleaseIOLock
+// automatically when a session finishes or is stopped.
+type IOLocker interface {
+	TryAcquireIOLock(sessionID string) bool
+	ReleaseIOLock(sessionID string)
+	GetIOLock() (bool, IOLock)
+}
+
 // DefaultActionFormatter provides a generic tool-name-to-sentence formatter.
 type DefaultActionFormatter struct{}
 

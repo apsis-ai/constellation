@@ -40,6 +40,9 @@ type Config struct {
 	IdleTimeout time.Duration
 	// AgentEnv returns environment variables for spawned agent processes. Optional.
 	AgentEnv func() []string
+	// IOLocker manages I/O lock lifecycle. Optional.
+	// When set, the Manager releases the lock automatically on session completion and stop.
+	IOLocker IOLocker
 }
 
 // Manager manages AI agent sessions.
@@ -58,6 +61,35 @@ type Manager struct {
 	mu              sync.Mutex
 	fileMu          sync.Map
 	summaryTimers   sync.Map
+}
+
+// ProviderRegistry returns the provider registry, or nil if not initialized.
+func (m *Manager) ProviderRegistry() *ProviderRegistry {
+	return m.providers
+}
+
+// TryAcquireIOLock acquires the I/O lock for a session.
+// Returns true if no IOLocker is configured.
+func (m *Manager) TryAcquireIOLock(sessionID string) bool {
+	if m.config.IOLocker == nil {
+		return true
+	}
+	return m.config.IOLocker.TryAcquireIOLock(sessionID)
+}
+
+// ReleaseIOLock releases the I/O lock for a session. No-op if no IOLocker is configured.
+func (m *Manager) ReleaseIOLock(sessionID string) {
+	if m.config.IOLocker != nil {
+		m.config.IOLocker.ReleaseIOLock(sessionID)
+	}
+}
+
+// GetIOLock returns the current I/O lock state.
+func (m *Manager) GetIOLock() (bool, IOLock) {
+	if m.config.IOLocker == nil {
+		return false, IOLock{}
+	}
+	return m.config.IOLocker.GetIOLock()
 }
 
 type idleEntry struct {
