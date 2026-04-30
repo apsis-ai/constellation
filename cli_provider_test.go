@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -112,6 +113,25 @@ func TestCLIProvider_ID(t *testing.T) {
 	}
 }
 
+func TestCLIProvider_OpenCodeDiscoveryUsesProviderQualifiedLabels(t *testing.T) {
+	cfg := BuiltinCLIConfigs()[2] // opencode
+	cfg.Binary = fakeModelBinary(t, "openai/gpt-5.3\ngithub-copilot/gpt-5.4\n")
+	p := NewCLIProvider(cfg, NewParserRegistry())
+
+	models, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	model, ok := findModel(models, "openai/gpt-5.3")
+	if !ok {
+		t.Fatalf("expected openai/gpt-5.3 in discovered models, got %#v", models)
+	}
+	if model.Name != "openai/gpt-5.3" {
+		t.Fatalf("expected provider-qualified label, got %q", model.Name)
+	}
+}
+
 func TestCLIProvider_SupportsResume(t *testing.T) {
 	parsers := NewParserRegistry()
 	configs := BuiltinCLIConfigs()
@@ -127,4 +147,13 @@ func TestCLIProvider_SupportsResume(t *testing.T) {
 			t.Errorf("%s: expected SupportsResume=%v", cfg.ProviderID, expected[cfg.ProviderID])
 		}
 	}
+}
+
+func findModel(models []ModelInfo, id string) (ModelInfo, bool) {
+	for _, model := range models {
+		if model.ID == id {
+			return model, true
+		}
+	}
+	return ModelInfo{}, false
 }

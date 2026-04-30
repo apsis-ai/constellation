@@ -49,10 +49,11 @@ type ProviderResult struct {
 
 // ModelInfo describes an available model.
 type ModelInfo struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	ContextSize int    `json:"context_size,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	ContextSize int      `json:"context_size,omitempty"`
+	Efforts     []string `json:"efforts,omitempty"`
 }
 
 // OutputParser parses streaming output from a provider.

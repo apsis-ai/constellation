@@ -1,6 +1,9 @@
 package mux
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // AgentInfo describes a registered agent and its capabilities.
 type AgentInfo struct {
@@ -38,18 +41,7 @@ func (r *Registry) ListAgents() []AgentInfo {
 	seen := make(map[string]bool)
 	for _, info := range all {
 		prov, ok := r.providers.Get(info.ID)
-		available := false
-		defaultModel := ""
-		if ok {
-			available = prov.Validate() == nil
-			defaultModel = prov.DefaultModel()
-		}
-		agents = append(agents, AgentInfo{
-			ID:           info.ID,
-			Name:         info.Name,
-			Available:    available,
-			DefaultModel: defaultModel,
-		})
+		agents = append(agents, agentInfoFromProvider(info, prov, ok))
 		seen[info.ID] = true
 	}
 	for id, info := range r.overrides {
@@ -73,21 +65,37 @@ func (r *Registry) GetAgent(id string) (AgentInfo, bool) {
 	for _, info := range all {
 		if info.ID == id {
 			prov, ok := r.providers.Get(id)
-			available := false
-			defaultModel := ""
-			if ok {
-				available = prov.Validate() == nil
-				defaultModel = prov.DefaultModel()
-			}
-			return AgentInfo{
-				ID:           info.ID,
-				Name:         info.Name,
-				Available:    available,
-				DefaultModel: defaultModel,
-			}, true
+			return agentInfoFromProvider(info, prov, ok), true
 		}
 	}
 	return AgentInfo{}, false
+}
+
+func agentInfoFromProvider(info ProviderInfo, prov Provider, ok bool) AgentInfo {
+	agent := AgentInfo{
+		ID:   info.ID,
+		Name: info.Name,
+	}
+	if !ok {
+		return agent
+	}
+
+	agent.Available = prov.Validate() == nil
+	agent.DefaultModel = prov.DefaultModel()
+	if models, err := prov.ListModels(context.Background()); err == nil {
+		agent.Models = modelIDs(models)
+	}
+	return agent
+}
+
+func modelIDs(models []ModelInfo) []string {
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		if model.ID != "" {
+			ids = append(ids, model.ID)
+		}
+	}
+	return ids
 }
 
 // Register adds or updates an agent in the registry.

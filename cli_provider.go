@@ -2,11 +2,54 @@ package mux
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 )
+
+// ModelDiscoveryConfig configures how a provider discovers available models dynamically.
+type ModelDiscoveryConfig struct {
+	// Command args appended to the provider binary for CLI-based discovery.
+	// E.g., ["models"] runs "opencode models".
+	Command []string `json:"command,omitempty"`
+
+	// CachePath is a file path for cache-based discovery (~ is expanded to home).
+	// E.g., "~/.codex/models_cache.json".
+	CachePath string `json:"cache_path,omitempty"`
+
+	// APIURL is an HTTP endpoint for API-based discovery.
+	// E.g., "https://api.anthropic.com/v1/models?limit=100".
+	APIURL string `json:"api_url,omitempty"`
+
+	// APIKeyEnv is the environment variable name for API authentication.
+	// The value is sent as "x-api-key" header.
+	APIKeyEnv string `json:"api_key_env,omitempty"`
+
+	// APIHeaders are additional headers sent with API requests.
+	// E.g., {"anthropic-version": "2023-06-01"}.
+	APIHeaders map[string]string `json:"api_headers,omitempty"`
+
+	// Format specifies how to parse discovery output:
+	//   "lines"          - one model ID per line; "provider/model" prefix is stripped for the label
+	//   "full-lines"     - one model ID per line; full ID is also used as the label
+	//   "dash"           - "id - Label (annotation)" per line; header/footer lines are skipped
+	//   "codex-cache"    - Codex models_cache.json format (filters by visibility: "list")
+	//   "anthropic-api"  - Anthropic /v1/models response with data[].{id, display_name}
+	Format string `json:"format"`
+
+	// Filter excludes discovered models whose ID contains any of these substrings.
+	Filter []string `json:"filter,omitempty"`
+
+	// Aliases are static model entries prepended to discovery results.
+	// These always appear regardless of discovery success.
+	Aliases []ModelInfo `json:"aliases,omitempty"`
+}
 
 // CLIProviderConfig holds configuration for a CLI-based provider.
 type CLIProviderConfig struct {
@@ -29,6 +72,9 @@ type CLIProviderConfig struct {
 	Models         []string `json:"models,omitempty"`
 	Efforts        []string `json:"efforts,omitempty"`
 	SubAgents      []string `json:"sub_agents,omitempty"`
+	// ModelDiscovery configures dynamic model discovery. When set, ListModels()
+	// probes for available models instead of returning the static Models list.
+	ModelDiscovery *ModelDiscoveryConfig `json:"model_discovery,omitempty"`
 }
 
 // CLIProvider executes prompts via CLI subprocess.
@@ -57,7 +103,265 @@ func (p *CLIProvider) Validate() error {
 }
 
 func (p *CLIProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	return nil, nil // Not yet implemented for CLI providers
+	disc := p.config.ModelDiscovery
+	if disc == nil {
+		return staticModels(p.config.Models), nil
+	}
+
+	var discovered []ModelInfo
+	var err error
+
+	switch {
+	case disc.CachePath != "":
+		discovered, err = discoverModelsFromCache(disc)
+	case len(disc.Command) > 0:
+		discovered, err = discoverModelsFromCLI(ctx, p.config.Binary, disc)
+	case disc.APIURL != "":
+		discovered, err = discoverModelsFromAPI(ctx, disc)
+	}
+
+	// Prepend aliases
+	var result []ModelInfo
+	result = append(result, disc.Aliases...)
+	if len(discovered) > 0 {
+		result = append(result, discovered...)
+	} else if err != nil || len(discovered) == 0 {
+		// Fall back to static models if discovery failed
+		result = append(result, staticModels(p.config.Models)...)
+	}
+
+	return result, nil
+}
+
+// staticModels converts a []string model list to []ModelInfo.
+func staticModels(ids []string) []ModelInfo {
+	models := make([]ModelInfo, len(ids))
+	for i, id := range ids {
+		models[i] = ModelInfo{ID: id, Name: id}
+	}
+	return models
+}
+
+// discoverModelsFromCache reads a JSON cache file to discover models.
+func discoverModelsFromCache(disc *ModelDiscoveryConfig) ([]ModelInfo, error) {
+	path := disc.CachePath
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[2:])
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	switch disc.Format {
+	case "codex-cache":
+		return parseCodexCache(data, disc.Filter)
+	default:
+		return nil, fmt.Errorf("unknown cache format: %s", disc.Format)
+	}
+}
+
+// discoverModelsFromCLI runs a CLI subcommand to discover models.
+func discoverModelsFromCLI(ctx context.Context, binary string, disc *ModelDiscoveryConfig) ([]ModelInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, binary, disc.Command...).Output()
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+
+	switch disc.Format {
+	case "lines":
+		return parseLinesFormat(lines, disc.Filter), nil
+	case "full-lines":
+		return parseFullLinesFormat(lines, disc.Filter), nil
+	case "dash":
+		return parseDashFormat(lines, disc.Filter), nil
+	default:
+		return parseLinesFormat(lines, disc.Filter), nil
+	}
+}
+
+// discoverModelsFromAPI calls an HTTP endpoint to discover models.
+func discoverModelsFromAPI(ctx context.Context, disc *ModelDiscoveryConfig) ([]ModelInfo, error) {
+	apiKey := os.Getenv(disc.APIKeyEnv)
+	if apiKey == "" {
+		return nil, fmt.Errorf("env var %s not set", disc.APIKeyEnv)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", disc.APIURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("x-api-key", apiKey)
+	for k, v := range disc.APIHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	switch disc.Format {
+	case "anthropic-api":
+		return parseAnthropicAPI(body, disc.Filter)
+	default:
+		return nil, fmt.Errorf("unknown API format: %s", disc.Format)
+	}
+}
+
+// parseCodexCache parses the Codex models_cache.json format.
+func parseCodexCache(data []byte, filter []string) ([]ModelInfo, error) {
+	var cache struct {
+		Models []struct {
+			Slug                     string `json:"slug"`
+			DisplayName              string `json:"display_name"`
+			Description              string `json:"description"`
+			Visibility               string `json:"visibility"`
+			SupportedReasoningLevels []struct {
+				Effort string `json:"effort"`
+			} `json:"supported_reasoning_levels"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, err
+	}
+
+	var models []ModelInfo
+	for _, m := range cache.Models {
+		if m.Visibility != "list" {
+			continue
+		}
+		if matchesFilter(m.Slug, filter) {
+			continue
+		}
+		name := m.DisplayName
+		if name == "" {
+			name = m.Slug
+		}
+		mi := ModelInfo{ID: m.Slug, Name: name, Description: m.Description}
+		for _, rl := range m.SupportedReasoningLevels {
+			mi.Efforts = append(mi.Efforts, rl.Effort)
+		}
+		models = append(models, mi)
+	}
+	return models, nil
+}
+
+// parseAnthropicAPI parses the Anthropic /v1/models response format.
+func parseAnthropicAPI(data []byte, filter []string) ([]ModelInfo, error) {
+	var result struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+
+	var models []ModelInfo
+	for _, m := range result.Data {
+		if matchesFilter(m.ID, filter) {
+			continue
+		}
+		name := m.DisplayName
+		if name == "" {
+			name = m.ID
+		}
+		models = append(models, ModelInfo{ID: m.ID, Name: name})
+	}
+	return models, nil
+}
+
+// parseLinesFormat parses one-model-per-line output (e.g., "provider/model").
+func parseLinesFormat(lines []string, filter []string) []ModelInfo {
+	var models []ModelInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if matchesFilter(line, filter) {
+			continue
+		}
+		label := line
+		if parts := strings.SplitN(line, "/", 2); len(parts) == 2 {
+			label = parts[1]
+		}
+		models = append(models, ModelInfo{ID: line, Name: label})
+	}
+	return models
+}
+
+// parseFullLinesFormat parses one-model-per-line output and keeps IDs as labels.
+func parseFullLinesFormat(lines []string, filter []string) []ModelInfo {
+	var models []ModelInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if matchesFilter(line, filter) {
+			continue
+		}
+		models = append(models, ModelInfo{ID: line, Name: line})
+	}
+	return models
+}
+
+// parseDashFormat parses "id - Label (annotation)" format lines.
+func parseDashFormat(lines []string, filter []string) []ModelInfo {
+	var models []ModelInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Available") || strings.HasPrefix(line, "Tip:") || strings.HasPrefix(line, "Loading") {
+			continue
+		}
+		parts := strings.SplitN(line, " - ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		label := strings.TrimSpace(parts[1])
+		if idx := strings.Index(label, "("); idx > 0 {
+			label = strings.TrimSpace(label[:idx])
+		}
+		if matchesFilter(id, filter) {
+			continue
+		}
+		models = append(models, ModelInfo{ID: id, Name: label})
+	}
+	return models
+}
+
+// matchesFilter returns true if s contains any of the filter substrings.
+func matchesFilter(s string, filter []string) bool {
+	for _, f := range filter {
+		if strings.Contains(s, f) {
+			return true
+		}
+	}
+	return false
 }
 
 // Execute is implemented in Phase 3 when Manager integration happens.
@@ -168,8 +472,21 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			MCPMode:        "flag",
 			DefaultModelID: "sonnet",
 			AttachmentMode: "prompt",
-			Models:         []string{"sonnet", "opus"},
+			Models:         []string{"sonnet", "opus", "haiku"},
 			Efforts:        []string{"low", "medium", "high"},
+			ModelDiscovery: &ModelDiscoveryConfig{
+				APIURL:    "https://api.anthropic.com/v1/models?limit=100",
+				APIKeyEnv: "ANTHROPIC_API_KEY",
+				APIHeaders: map[string]string{
+					"anthropic-version": "2023-06-01",
+				},
+				Format: "anthropic-api",
+				Aliases: []ModelInfo{
+					{ID: "sonnet", Name: "Sonnet (latest)"},
+					{ID: "opus", Name: "Opus (latest)"},
+					{ID: "haiku", Name: "Haiku (latest)"},
+				},
+			},
 		},
 		{
 			ProviderID:     "codex",
@@ -179,9 +496,13 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			ParserType:     "codex",
 			SupportsResume: false,
 			ModelFlag:      "-m",
-			DefaultModelID: "o4-mini",
+			DefaultModelID: "gpt-5.4",
 			AttachmentMode: "prompt",
-			Models:         []string{"o3", "codex-mini-latest"},
+			Models:         []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"},
+			ModelDiscovery: &ModelDiscoveryConfig{
+				CachePath: "~/.codex/models_cache.json",
+				Format:    "codex-cache",
+			},
 		},
 		{
 			ProviderID:     "opencode",
@@ -197,6 +518,11 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			AttachmentMode: "flag",
 			AttachmentFlag: "--file",
 			Efforts:        []string{"minimal", "high", "max"},
+			ModelDiscovery: &ModelDiscoveryConfig{
+				Command: []string{"models"},
+				Format:  "full-lines",
+				Filter:  []string{"claude"},
+			},
 		},
 		{
 			ProviderID:     "agent",
@@ -209,6 +535,10 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			ModelFlag:      "--model",
 			MCPMode:        "workspace",
 			AttachmentMode: "prompt",
+			ModelDiscovery: &ModelDiscoveryConfig{
+				Command: []string{"models"},
+				Format:  "dash",
+			},
 		},
 	}
 }

@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -159,5 +160,66 @@ func TestProviderRegistry_Persistence(t *testing.T) {
 	providers := reg2.List()
 	if len(providers) != 4 {
 		t.Errorf("expected 4 providers after reload, got %d", len(providers))
+	}
+}
+
+func TestProviderRegistry_RegisterBuiltins_BackfillsLegacyBuiltinConfig(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	parsers := NewParserRegistry()
+	reg, err := NewProviderRegistry(m.db, parsers)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	legacyCodex := CLIProviderConfig{
+		ProviderID:     "codex",
+		Name:           "Codex",
+		Binary:         "codex-custom",
+		BaseArgs:       []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox"},
+		ParserType:     "codex",
+		SupportsResume: false,
+		Models:         []string{"o3", "codex-mini-latest"},
+	}
+	if err := reg.Register(legacyCodex); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetEnabled("codex", false); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := reg.RegisterBuiltins(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := reg.GetConfig("codex")
+	if !ok {
+		t.Fatal("expected codex config after builtin sync")
+	}
+	if got.Binary != legacyCodex.Binary {
+		t.Fatalf("expected custom binary %q to be preserved, got %q", legacyCodex.Binary, got.Binary)
+	}
+	if !slices.Equal(got.Models, legacyCodex.Models) {
+		t.Fatalf("expected fallback models %v to be preserved, got %v", legacyCodex.Models, got.Models)
+	}
+	if got.ModelDiscovery == nil {
+		t.Fatal("expected model discovery to be backfilled")
+	}
+	if got.ModelDiscovery.CachePath != "~/.codex/models_cache.json" {
+		t.Fatalf("expected codex cache path to be restored, got %q", got.ModelDiscovery.CachePath)
+	}
+	if got.ModelFlag != "-m" {
+		t.Fatalf("expected model flag to be backfilled, got %q", got.ModelFlag)
+	}
+	if got.AttachmentMode != "prompt" {
+		t.Fatalf("expected attachment mode to be backfilled, got %q", got.AttachmentMode)
+	}
+	if _, ok := reg.Get("codex"); ok {
+		t.Fatal("expected disabled codex provider to remain disabled after builtin sync")
 	}
 }

@@ -1,6 +1,8 @@
 package mux
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -112,4 +114,110 @@ func TestRegistry_DefaultAgentList(t *testing.T) {
 			t.Errorf("expected agent %q in default list", id)
 		}
 	}
+}
+
+func TestRegistry_ListAgentsIncludesDiscoveredProviderModels(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	binary := fakeModelBinary(t, "openai/gpt-5.3\ngithub-copilot/gpt-5.4\n")
+	if err := m.providers.Register(CLIProviderConfig{
+		ProviderID: "opencode",
+		Name:       "OpenCode",
+		Binary:     binary,
+		ParserType: "opencode",
+		ModelDiscovery: &ModelDiscoveryConfig{
+			Command: []string{"models"},
+			Format:  "lines",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewRegistry(m.providers)
+	agents := r.ListAgents()
+
+	opencode, ok := findAgent(agents, "opencode")
+	if !ok {
+		t.Fatal("expected opencode agent")
+	}
+	if !containsString(opencode.Models, "openai/gpt-5.3") {
+		t.Fatalf("expected discovered OpenCode model in registry, got %#v", opencode.Models)
+	}
+	if !containsString(opencode.Models, "github-copilot/gpt-5.4") {
+		t.Fatalf("expected discovered GitHub Copilot model in registry, got %#v", opencode.Models)
+	}
+}
+
+func TestRegistry_GetAgentIncludesDiscoveredProviderModels(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	binary := fakeModelBinary(t, "openai/gpt-5.3\n")
+	if err := m.providers.Register(CLIProviderConfig{
+		ProviderID: "opencode",
+		Name:       "OpenCode",
+		Binary:     binary,
+		ParserType: "opencode",
+		ModelDiscovery: &ModelDiscoveryConfig{
+			Command: []string{"models"},
+			Format:  "lines",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewRegistry(m.providers)
+
+	opencode, ok := r.GetAgent("opencode")
+	if !ok {
+		t.Fatal("expected opencode agent")
+	}
+	if !containsString(opencode.Models, "openai/gpt-5.3") {
+		t.Fatalf("expected discovered model from GetAgent, got %#v", opencode.Models)
+	}
+}
+
+func findAgent(agents []AgentInfo, id string) (AgentInfo, bool) {
+	for _, agent := range agents {
+		if agent.ID == id {
+			return agent, true
+		}
+	}
+	return AgentInfo{}, false
+}
+
+func fakeModelBinary(t *testing.T, output string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "models-cli")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"models\" ]; then\n" +
+		"  cat <<'EOF'\n" +
+		output +
+		"EOF\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 1\n"
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
