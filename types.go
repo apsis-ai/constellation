@@ -17,16 +17,17 @@ const (
 
 // Session represents a conversation session with an AI agent.
 type Session struct {
-	ID           string        `json:"id"`
-	Status       SessionStatus `json:"status"`
-	HandoffPath  string        `json:"handoff_path,omitempty"`
-	Title        string        `json:"title"`
-	LastAgent    string        `json:"last_agent"`
-	LastAgentSub string        `json:"last_agent_sub"`
-	LastModel    string        `json:"last_model"`
-	LastEffort   string        `json:"last_effort"`
-	CreatedAt    int64         `json:"created_at"`
-	LastActiveAt int64         `json:"last_active_at"`
+	ID               string        `json:"id"`
+	Status           SessionStatus `json:"status"`
+	HandoffPath      string        `json:"handoff_path,omitempty"`
+	Title            string        `json:"title"`
+	LastAgent        string        `json:"last_agent"`
+	LastAgentSub     string        `json:"last_agent_sub"`
+	LastModel        string        `json:"last_model"`
+	LastEffort       string        `json:"last_effort"`
+	WorkingDirectory string        `json:"working_directory"`
+	CreatedAt        int64         `json:"created_at"`
+	LastActiveAt     int64         `json:"last_active_at"`
 }
 
 // Message is a single conversation turn stored in the DB.
@@ -148,15 +149,16 @@ type HandoffRequest struct {
 
 // SendRequest contains all parameters for sending a prompt.
 type SendRequest struct {
-	Prompt        string
-	SessionID     string
-	Agent         string
-	AgentSub      string
-	Model         string
-	Effort        string
-	AttachmentIDs []string
-	MessageID     string
-	ResponseID    string
+	Prompt           string
+	SessionID        string
+	Agent            string
+	AgentSub         string
+	Model            string
+	Effort           string
+	AttachmentIDs    []string
+	MessageID        string
+	ResponseID       string
+	WorkingDirectory string
 }
 
 // SendResult is returned from Manager.Send.

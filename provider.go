@@ -28,15 +28,16 @@ type Provider interface {
 
 // ProviderRequest contains everything needed to execute a prompt.
 type ProviderRequest struct {
-	SessionID      string
-	Prompt         string
-	Model          string
-	Effort         string
-	SubAgent       string
-	ConversationID string
-	Attachments    []AttachmentRef
-	MCPConfig      string
-	Env            []string
+	SessionID        string
+	Prompt           string
+	Model            string
+	Effort           string
+	SubAgent         string
+	ConversationID   string
+	Attachments      []AttachmentRef
+	MCPConfig        string
+	Env              []string
+	WorkingDirectory string
 }
 
 // ProviderResult is returned after execution completes.

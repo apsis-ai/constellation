@@ -61,9 +61,20 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	defer tx.Rollback()
 
 	insRes, _ := tx.Exec(`INSERT OR IGNORE INTO sessions (id, status, handoff_path, conversation_id, token_usage, created_at, last_active_at)
-		VALUES (?, ?, '', NULL, NULL, ?, ?)`, sessionID, StatusActive, now, now)
+			VALUES (?, ?, '', NULL, NULL, ?, ?)`, sessionID, StatusActive, now, now)
 	if n, _ := insRes.RowsAffected(); n > 0 {
 		m.broadcast.PublishSessionCreated(sessionID, "")
+	}
+
+	var conversationID, handoffPath, lastAgent, workingDirectory string
+	err = tx.QueryRow(`SELECT COALESCE(conversation_id, ''), COALESCE(handoff_path, ''), COALESCE(last_agent, ''), COALESCE(working_directory, '') FROM sessions WHERE id = ?`, sessionID).
+		Scan(&conversationID, &handoffPath, &lastAgent, &workingDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("query session: %w", err)
+	}
+	workingDirectory, err = m.ensureSessionWorkingDirectory(context.Background(), tx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("working directory: %w", err)
 	}
 
 	// Generate title for new sessions
@@ -99,11 +110,6 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 		Attachments: attachments,
 	})
 
-	var conversationID, handoffPath, lastAgent string
-	err = tx.QueryRow(`SELECT COALESCE(conversation_id, ''), COALESCE(handoff_path, ''), COALESCE(last_agent, '') FROM sessions WHERE id = ?`, sessionID).Scan(&conversationID, &handoffPath, &lastAgent)
-	if err != nil {
-		return nil, fmt.Errorf("query session: %w", err)
-	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
@@ -146,15 +152,16 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	}
 
 	provReq := ProviderRequest{
-		SessionID:      sessionID,
-		Prompt:         prompt,
-		Model:          req.Model,
-		Effort:         req.Effort,
-		SubAgent:       req.AgentSub,
-		ConversationID: conversationID,
-		Attachments:    attachments,
-		MCPConfig:      mcpConfig,
-		Env:            env,
+		SessionID:        sessionID,
+		Prompt:           prompt,
+		Model:            req.Model,
+		Effort:           req.Effort,
+		SubAgent:         req.AgentSub,
+		ConversationID:   conversationID,
+		Attachments:      attachments,
+		MCPConfig:        mcpConfig,
+		Env:              env,
+		WorkingDirectory: workingDirectory,
 	}
 
 	cmd, err := cliProv.BuildCommand(provReq)

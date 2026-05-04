@@ -432,7 +432,9 @@ func (p *CLIProvider) BuildCommand(req ProviderRequest) (*exec.Cmd, error) {
 	}
 
 	cmd := exec.Command(binPath, args...)
-	if p.config.MCPMode == "workspace" {
+	if req.WorkingDirectory != "" {
+		cmd.Dir = req.WorkingDirectory
+	} else if p.config.MCPMode == "workspace" {
 		cmd.Dir = filepath.Join(os.TempDir(), "agents-mux-cursor")
 	}
 

@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apsis-ai/gimbal/filesystem"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
@@ -43,6 +45,10 @@ type Config struct {
 	// IOLocker manages I/O lock lifecycle. Optional.
 	// When set, the Manager releases the lock automatically on session completion and stop.
 	IOLocker IOLocker
+	// Filesystem validates and resolves working directories. Optional (uses host filesystem).
+	Filesystem filesystem.Provider
+	// WorkingDirectoryDefault is the preferred default cwd for new sessions. Optional.
+	WorkingDirectoryDefault string
 }
 
 // Manager manages AI agent sessions.
@@ -186,30 +192,52 @@ func (m *Manager) CreateSession(sessionID string) error {
 		sessionID = uuid.New().String()
 	}
 	now := nowUnix()
-	_, err := m.db.Exec(
-		`INSERT OR IGNORE INTO sessions (id, status, handoff_path, conversation_id, token_usage, created_at, last_active_at)
-		VALUES (?, ?, '', NULL, NULL, ?, ?)`,
-		sessionID, StatusIdle, now, now,
+	cwd, err := m.defaultWorkingDirectory(context.Background())
+	if err != nil {
+		return err
+	}
+	_, err = m.db.Exec(
+		`INSERT OR IGNORE INTO sessions (id, status, handoff_path, conversation_id, token_usage, created_at, last_active_at, working_directory)
+			VALUES (?, ?, '', NULL, NULL, ?, ?, ?)`,
+		sessionID, StatusIdle, now, now, cwd,
 	)
+	if err != nil {
+		return err
+	}
+	_, err = m.ensureSessionWorkingDirectory(context.Background(), m.db, sessionID)
 	return err
 }
 
 // ListSessions returns all sessions ordered by last_active_at DESC.
 func (m *Manager) ListSessions() ([]Session, error) {
-	rows, err := m.db.Query(`SELECT id, status, COALESCE(handoff_path,''), COALESCE(title,''), COALESCE(last_agent,''), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), created_at, last_active_at FROM sessions ORDER BY last_active_at DESC`)
+	rows, err := m.db.Query(`SELECT id, status, COALESCE(handoff_path,''), COALESCE(title,''), COALESCE(last_agent,''), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), created_at, last_active_at, COALESCE(working_directory,'') FROM sessions ORDER BY last_active_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var sessions []Session
 	for rows.Next() {
-		var s Session
-		if err := rows.Scan(&s.ID, &s.Status, &s.HandoffPath, &s.Title, &s.LastAgent, &s.LastAgentSub, &s.LastModel, &s.LastEffort, &s.CreatedAt, &s.LastActiveAt); err != nil {
+		s, err := scanSession(rows)
+		if err != nil {
 			return nil, err
 		}
 		sessions = append(sessions, s)
 	}
 	return sessions, nil
+}
+
+type sessionScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSession(scanner sessionScanner) (Session, error) {
+	var s Session
+	err := scanner.Scan(&s.ID, &s.Status, &s.HandoffPath, &s.Title, &s.LastAgent, &s.LastAgentSub, &s.LastModel, &s.LastEffort, &s.CreatedAt, &s.LastActiveAt, &s.WorkingDirectory)
+	return s, err
+}
+
+func (m *Manager) getSession(sessionID string) (Session, error) {
+	return scanSession(m.db.QueryRow(`SELECT id, status, COALESCE(handoff_path,''), COALESCE(title,''), COALESCE(last_agent,''), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), created_at, last_active_at, COALESCE(working_directory,'') FROM sessions WHERE id = ?`, sessionID))
 }
 
 // DeleteSession deletes a session and its files.
@@ -314,6 +342,7 @@ func initDB(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN last_model TEXT NOT NULL DEFAULT ''`)
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN last_effort TEXT NOT NULL DEFAULT ''`)
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN pid INTEGER NOT NULL DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN working_directory TEXT NOT NULL DEFAULT ''`)
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id         INTEGER PRIMARY KEY AUTOINCREMENT,

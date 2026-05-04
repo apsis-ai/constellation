@@ -2,6 +2,8 @@ package mux
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -129,6 +131,24 @@ func TestCLIProvider_OpenCodeDiscoveryUsesProviderQualifiedLabels(t *testing.T) 
 	}
 	if model.Name != "openai/gpt-5.3" {
 		t.Fatalf("expected provider-qualified label, got %q", model.Name)
+	}
+}
+
+func TestCLIProviderBuildCommandUsesWorkingDirectory(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "fake-cli")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho ok\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	workingDirectory := t.TempDir()
+	p := NewCLIProvider(CLIProviderConfig{Binary: binary, ParserType: "other"}, NewParserRegistry())
+
+	cmd, err := p.BuildCommand(ProviderRequest{Prompt: "hi", WorkingDirectory: workingDirectory})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cmd.Dir != workingDirectory {
+		t.Fatalf("cmd.Dir = %q, want %q", cmd.Dir, workingDirectory)
 	}
 }
 

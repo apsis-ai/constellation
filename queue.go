@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -42,6 +43,9 @@ func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, mod
 	now := time.Now().Unix()
 	_, _ = m.db.Exec(`INSERT OR IGNORE INTO sessions (id, status, handoff_path, conversation_id, token_usage, created_at, last_active_at)
 		VALUES (?, ?, '', NULL, NULL, ?, ?)`, sessionID, StatusActive, now, now)
+	if _, err := m.ensureSessionWorkingDirectory(context.Background(), m.db, sessionID); err != nil {
+		return nil, fmt.Errorf("working directory: %w", err)
+	}
 
 	var lastAgent, lastAgentSub, lastModel, lastEffort string
 	_ = m.db.QueryRow(`SELECT COALESCE(last_agent,'claude'), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,'') FROM sessions WHERE id = ?`, sessionID).Scan(&lastAgent, &lastAgentSub, &lastModel, &lastEffort)
