@@ -263,6 +263,35 @@ func TestGetMessages_PrefersConversationFile(t *testing.T) {
 	}
 }
 
+func TestGetMessages_ReturnsPersistedMessageIDs(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer m.Close()
+
+	m.CreateSession("msg-id-test")
+	now := nowUnix()
+	if _, err := m.db.Exec(
+		`INSERT INTO messages (message_id, session_id, role, content, created_at) VALUES (?, ?, 'user', 'hello', ?)`,
+		"frontend-user-1", "msg-id-test", now,
+	); err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+
+	msgs, err := m.GetMessages("msg-id-test")
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].ID != "frontend-user-1" {
+		t.Fatalf("expected frontend message id, got %#v", msgs[0])
+	}
+}
+
 func TestSessionDir_CreatesDirectory(t *testing.T) {
 	cfg := tempConfig(t)
 	m, err := NewManager(cfg)

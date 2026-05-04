@@ -355,7 +355,7 @@ func TestMarkQueueItemCompleted(t *testing.T) {
 	m.CreateSession("q16")
 
 	item, _ := m.AddToQueue("q16", "will-complete", "", "", "", "", nil, "", "")
-	m.MarkQueueItemCompleted(item.ID, 42)
+	m.MarkQueueItemCompleted(item.ID, "42")
 
 	// Should no longer appear in pending list
 	if n := m.QueueLength("q16"); n != 0 {
@@ -370,8 +370,8 @@ func TestMarkQueueItemCompleted(t *testing.T) {
 	if all[0].Status != "completed" {
 		t.Errorf("expected status 'completed', got %q", all[0].Status)
 	}
-	if all[0].MessageID != 42 {
-		t.Errorf("expected message_id 42, got %d", all[0].MessageID)
+	if all[0].MessageID != "42" {
+		t.Errorf("expected message_id 42, got %s", all[0].MessageID)
 	}
 }
 

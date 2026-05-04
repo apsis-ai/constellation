@@ -31,12 +31,14 @@ type Session struct {
 
 // Message is a single conversation turn stored in the DB.
 type Message struct {
+	ID      string `json:"id,omitempty"`
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
 // ConversationEntry is a single line in conversation.jsonl.
 type ConversationEntry struct {
+	ID          string                 `json:"id,omitempty"`
 	Timestamp   string                 `json:"ts"`
 	Role        string                 `json:"role"`
 	Content     string                 `json:"content"`
@@ -74,7 +76,8 @@ type QueueItem struct {
 	Source      string   `json:"source"`
 	Status      string   `json:"status"`
 	Transcript  string   `json:"transcript,omitempty"`
-	MessageID   int64    `json:"message_id,omitempty"`
+	MessageID   string   `json:"message_id,omitempty"`
+	ResponseID  string   `json:"response_id,omitempty"`
 	StartedAt   int64    `json:"started_at,omitempty"`
 	CompletedAt int64    `json:"completed_at,omitempty"`
 	Error       string   `json:"error,omitempty"`
@@ -152,13 +155,17 @@ type SendRequest struct {
 	Model         string
 	Effort        string
 	AttachmentIDs []string
+	MessageID     string
+	ResponseID    string
 }
 
 // SendResult is returned from Manager.Send.
 type SendResult struct {
-	Events    <-chan ChanEvent
-	SessionID string
-	MessageID int64
+	Events            <-chan ChanEvent
+	SessionID         string
+	MessageID         int64
+	UserMessageID     string
+	ResponseMessageID string
 }
 
 // toInt converts numeric interface values to int.

@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 // AddToQueue inserts a follow-up message into the queue for a session.
-func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, model, effort string, attachments []string, source, transcript string) (*QueueItem, error) {
+func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, model, effort string, attachments []string, source, transcript string, messageIDs ...string) (*QueueItem, error) {
 	if sessionID == "" {
 		return nil, fmt.Errorf("session_id required")
 	}
@@ -20,6 +21,22 @@ func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, mod
 	}
 	if source == "" {
 		source = "text"
+	}
+	messageID := ""
+	if len(messageIDs) > 0 {
+		messageID = messageIDs[0]
+	}
+	responseID := ""
+	if len(messageIDs) > 1 {
+		responseID = messageIDs[1]
+	}
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		messageID = uuid.NewString()
+	}
+	responseID = strings.TrimSpace(responseID)
+	if responseID == "" {
+		responseID = uuid.NewString()
 	}
 
 	now := time.Now().Unix()
@@ -58,9 +75,9 @@ func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, mod
 		attJSON = string(b)
 	}
 
-	_, err := m.db.Exec(`INSERT INTO follow_up_queue (id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, status, transcript)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-		id, sessionID, text, position, agent, agentSub, model, effort, attJSON, now, source, transcript)
+	_, err := m.db.Exec(`INSERT INTO follow_up_queue (id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, status, transcript, message_id, response_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		id, sessionID, text, position, agent, agentSub, model, effort, attJSON, now, source, transcript, messageID, responseID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,12 +96,14 @@ func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, mod
 		Source:      source,
 		Status:      "pending",
 		Transcript:  transcript,
+		MessageID:   messageID,
+		ResponseID:  responseID,
 	}, nil
 }
 
 // ListQueue returns pending queue items for a session ordered by position ascending.
 func (m *Manager) ListQueue(sessionID string) ([]QueueItem, error) {
-	rows, err := m.db.Query(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, message_id, started_at, completed_at, error
+	rows, err := m.db.Query(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
 		FROM follow_up_queue WHERE session_id = ? AND status = 'pending' ORDER BY position ASC`, sessionID)
 	if err != nil {
 		return nil, err
@@ -95,7 +114,7 @@ func (m *Manager) ListQueue(sessionID string) ([]QueueItem, error) {
 	for rows.Next() {
 		var q QueueItem
 		var attJSON string
-		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
+		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
 			return nil, err
 		}
 		if attJSON != "" && attJSON != "[]" {
@@ -108,7 +127,7 @@ func (m *Manager) ListQueue(sessionID string) ([]QueueItem, error) {
 
 // ListQueueAll returns all queue items for a session (including completed/failed) ordered by position ascending.
 func (m *Manager) ListQueueAll(sessionID string) ([]QueueItem, error) {
-	rows, err := m.db.Query(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, message_id, started_at, completed_at, error
+	rows, err := m.db.Query(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
 		FROM follow_up_queue WHERE session_id = ? ORDER BY position ASC`, sessionID)
 	if err != nil {
 		return nil, err
@@ -119,7 +138,7 @@ func (m *Manager) ListQueueAll(sessionID string) ([]QueueItem, error) {
 	for rows.Next() {
 		var q QueueItem
 		var attJSON string
-		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
+		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
 			return nil, err
 		}
 		if attJSON != "" && attJSON != "[]" {
@@ -142,8 +161,8 @@ func (m *Manager) UpdateQueueItem(sessionID, itemID string, text string) (*Queue
 	}
 	var q QueueItem
 	var attJSON string
-	err = m.db.QueryRow(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, message_id, started_at, completed_at, error
-		FROM follow_up_queue WHERE id = ?`, itemID).Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.StartedAt, &q.CompletedAt, &q.Error)
+	err = m.db.QueryRow(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
+		FROM follow_up_queue WHERE id = ?`, itemID).Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error)
 	if err != nil {
 		return nil, err
 	}
@@ -169,9 +188,9 @@ func (m *Manager) PopNextFromQueue(sessionID string) *QueueItem {
 
 	var q QueueItem
 	var attJSON string
-	err = tx.QueryRow(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, transcript
+	err = tx.QueryRow(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, transcript, CAST(message_id AS TEXT), COALESCE(response_id, '')
 		FROM follow_up_queue WHERE session_id = ? AND status = 'pending' ORDER BY position ASC LIMIT 1`, sessionID).Scan(
-		&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Transcript)
+		&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Transcript, &q.MessageID, &q.ResponseID)
 	if err != nil {
 		return nil
 	}
@@ -200,7 +219,7 @@ func (m *Manager) ClearQueue(sessionID string) {
 }
 
 // MarkQueueItemCompleted marks a queue item as completed with the linked message ID.
-func (m *Manager) MarkQueueItemCompleted(itemID string, messageID int64) {
+func (m *Manager) MarkQueueItemCompleted(itemID string, messageID string) {
 	now := time.Now().Unix()
 	_, _ = m.db.Exec(`UPDATE follow_up_queue SET status = 'completed', message_id = ?, completed_at = ? WHERE id = ?`,
 		messageID, now, itemID)
@@ -325,6 +344,8 @@ func processQueueItem(m *Manager, sessionID string) {
 		Model:         item.Model,
 		Effort:        item.Effort,
 		AttachmentIDs: item.Attachments,
+		MessageID:     item.MessageID,
+		ResponseID:    item.ResponseID,
 	})
 	if err != nil {
 		log.Printf("processNextFromQueue Send failed: %v", err)
@@ -332,8 +353,8 @@ func processQueueItem(m *Manager, sessionID string) {
 		return
 	}
 
-	if result.MessageID > 0 {
-		_, _ = m.db.Exec(`UPDATE follow_up_queue SET message_id = ? WHERE id = ?`, result.MessageID, item.ID)
+	if result.UserMessageID != "" {
+		_, _ = m.db.Exec(`UPDATE follow_up_queue SET message_id = ?, response_id = ? WHERE id = ?`, result.UserMessageID, result.ResponseMessageID, item.ID)
 	}
 
 	bc := m.GetBroadcaster()
@@ -342,7 +363,7 @@ func processQueueItem(m *Manager, sessionID string) {
 		case ChanAction:
 			var actionData map[string]interface{}
 			if err := json.Unmarshal([]byte(evt.JSON), &actionData); err == nil {
-				bc.PublishAction(sessionID, "", actionData)
+				bc.PublishAction(sessionID, result.ResponseMessageID, actionData)
 			}
 		case ChanAskUser:
 			var askData map[string]interface{}
@@ -352,9 +373,9 @@ func processQueueItem(m *Manager, sessionID string) {
 				})
 			}
 		case ChanText:
-			bc.PublishChunk(sessionID, "", evt.Text)
+			bc.PublishChunk(sessionID, result.ResponseMessageID, evt.Text)
 		}
 	}
-	bc.PublishDone(sessionID, "")
-	m.MarkQueueItemCompleted(item.ID, result.MessageID)
+	bc.PublishDone(sessionID, result.ResponseMessageID)
+	m.MarkQueueItemCompleted(item.ID, result.UserMessageID)
 }

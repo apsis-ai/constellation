@@ -235,14 +235,14 @@ func (m *Manager) GetMessages(sessionID string) ([]Message, error) {
 	var messages []Message
 	for _, e := range entries {
 		if e.Role == "user" || e.Role == "assistant" {
-			messages = append(messages, Message{Role: e.Role, Content: e.Content})
+			messages = append(messages, Message{ID: e.ID, Role: e.Role, Content: e.Content})
 		}
 	}
 	return messages, nil
 }
 
 func (m *Manager) getMessagesFromDB(sessionID string) ([]Message, error) {
-	rows, err := m.db.Query(`SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC`, sessionID)
+	rows, err := m.db.Query(`SELECT COALESCE(NULLIF(message_id, ''), CAST(id AS TEXT)), role, content FROM messages WHERE session_id = ? ORDER BY id ASC`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +250,7 @@ func (m *Manager) getMessagesFromDB(sessionID string) ([]Message, error) {
 	var msgs []Message
 	for rows.Next() {
 		var msg Message
-		if err := rows.Scan(&msg.Role, &msg.Content); err != nil {
+		if err := rows.Scan(&msg.ID, &msg.Role, &msg.Content); err != nil {
 			return nil, err
 		}
 		msgs = append(msgs, msg)
@@ -317,6 +317,7 @@ func initDB(db *sql.DB) error {
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		message_id TEXT NOT NULL DEFAULT '',
 		session_id TEXT NOT NULL,
 		role       TEXT NOT NULL,
 		content    TEXT NOT NULL,
@@ -325,6 +326,8 @@ func initDB(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	_, _ = db.Exec(`ALTER TABLE messages ADD COLUMN message_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_message_id ON messages(message_id)`)
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS follow_up_queue (
 		id          TEXT PRIMARY KEY,
@@ -345,7 +348,8 @@ func initDB(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN source TEXT NOT NULL DEFAULT 'text'`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN transcript TEXT NOT NULL DEFAULT ''`)
-	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN message_id INTEGER NOT NULL DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN message_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN response_id TEXT NOT NULL DEFAULT ''`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN started_at INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN completed_at INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN error TEXT NOT NULL DEFAULT ''`)

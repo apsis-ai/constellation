@@ -51,6 +51,9 @@ func (m *Manager) readConversation(sessionID string) ([]ConversationEntry, error
 			continue
 		}
 		entry := ConversationEntry{}
+		if v, ok := raw["id"].(string); ok {
+			entry.ID = v
+		}
 		if v, ok := raw["ts"].(string); ok {
 			entry.Timestamp = v
 		}

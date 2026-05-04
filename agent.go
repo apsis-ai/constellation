@@ -42,6 +42,16 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	if agent == "" {
 		agent = "claude"
 	}
+	userMessageID := strings.TrimSpace(req.MessageID)
+	if userMessageID == "" {
+		userMessageID = uuid.NewString()
+	}
+	responseMessageID := strings.TrimSpace(req.ResponseID)
+	if responseMessageID == "" {
+		responseMessageID = uuid.NewString()
+	}
+	req.MessageID = userMessageID
+	req.ResponseID = responseMessageID
 
 	now := nowUnix()
 	tx, err := m.db.Begin()
@@ -67,8 +77,8 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 
 	// Persist user message
 	var userMsgID int64
-	msgRes, _ := tx.Exec(`INSERT INTO messages (session_id, role, content, created_at) VALUES (?, 'user', ?, ?)`,
-		sessionID, req.Prompt, now)
+	msgRes, _ := tx.Exec(`INSERT INTO messages (message_id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`,
+		userMessageID, sessionID, req.Prompt, now)
 	if msgRes != nil {
 		userMsgID, _ = msgRes.LastInsertId()
 	}
@@ -83,6 +93,7 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	}
 
 	m.appendConversation(sessionID, ConversationEntry{
+		ID:          userMessageID,
 		Role:        "user",
 		Content:     req.Prompt,
 		Attachments: attachments,
@@ -188,9 +199,11 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	go m.runAgentLoop(sessionID, agent, req, cmd, stdoutPipe, parser, ch)
 
 	return &SendResult{
-		Events:    ch,
-		SessionID: sessionID,
-		MessageID: userMsgID,
+		Events:            ch,
+		SessionID:         sessionID,
+		MessageID:         userMsgID,
+		UserMessageID:     userMessageID,
+		ResponseMessageID: responseMessageID,
 	}, nil
 }
 
@@ -219,10 +232,10 @@ func (m *Manager) runAgentLoop(sessionID, agent string, req SendRequest, cmd *ex
 	}
 
 	if result.FullText != "" {
-		_, _ = m.db.Exec(`INSERT INTO messages (session_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)`,
-			sessionID, result.FullText, now)
+		_, _ = m.db.Exec(`INSERT INTO messages (message_id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)`,
+			req.ResponseID, sessionID, result.FullText, now)
 		m.appendConversation(sessionID, ConversationEntry{
-			Role: "assistant", Agent: agent, Content: result.FullText,
+			ID: req.ResponseID, Role: "assistant", Agent: agent, Content: result.FullText,
 		})
 	}
 
