@@ -13,42 +13,54 @@ import (
 )
 
 // AddToQueue inserts a follow-up message into the queue for a session.
-func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, model, effort string, attachments []string, source, transcript string, messageIDs ...string) (*QueueItem, error) {
-	if sessionID == "" {
+func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
+	if req.SessionID == "" {
 		return nil, fmt.Errorf("session_id required")
 	}
-	if text == "" {
+	if req.Text == "" {
 		return nil, fmt.Errorf("text required")
 	}
+	source := req.Source
 	if source == "" {
 		source = "text"
 	}
-	messageID := ""
-	if len(messageIDs) > 0 {
-		messageID = messageIDs[0]
-	}
-	responseID := ""
-	if len(messageIDs) > 1 {
-		responseID = messageIDs[1]
-	}
-	messageID = strings.TrimSpace(messageID)
+	messageID := strings.TrimSpace(req.MessageID)
 	if messageID == "" {
 		messageID = uuid.NewString()
 	}
-	responseID = strings.TrimSpace(responseID)
+	responseID := strings.TrimSpace(req.ResponseID)
 	if responseID == "" {
 		responseID = uuid.NewString()
 	}
 
 	now := time.Now().Unix()
 	_, _ = m.db.Exec(`INSERT OR IGNORE INTO sessions (id, status, handoff_path, conversation_id, token_usage, created_at, last_active_at)
-		VALUES (?, ?, '', NULL, NULL, ?, ?)`, sessionID, StatusActive, now, now)
-	if _, err := m.ensureSessionWorkingDirectory(context.Background(), m.db, sessionID); err != nil {
-		return nil, fmt.Errorf("working directory: %w", err)
+		VALUES (?, ?, '', NULL, NULL, ?, ?)`, req.SessionID, StatusActive, now, now)
+
+	workingDirectory := strings.TrimSpace(req.WorkingDirectory)
+	var err error
+	if workingDirectory == "" {
+		workingDirectory, err = m.ensureSessionWorkingDirectory(context.Background(), m.db, req.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("working directory: %w", err)
+		}
+	} else {
+		base, err := m.ensureSessionWorkingDirectory(context.Background(), m.db, req.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("working directory: %w", err)
+		}
+		workingDirectory, err = m.validateWorkingDirectory(context.Background(), workingDirectory, base)
+		if err != nil {
+			return nil, fmt.Errorf("working directory: %w", err)
+		}
 	}
 
+	agent := req.Agent
+	agentSub := req.AgentSub
+	model := req.Model
+	effort := req.Effort
 	var lastAgent, lastAgentSub, lastModel, lastEffort string
-	_ = m.db.QueryRow(`SELECT COALESCE(last_agent,'claude'), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,'') FROM sessions WHERE id = ?`, sessionID).Scan(&lastAgent, &lastAgentSub, &lastModel, &lastEffort)
+	_ = m.db.QueryRow(`SELECT COALESCE(last_agent,'claude'), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,'') FROM sessions WHERE id = ?`, req.SessionID).Scan(&lastAgent, &lastAgentSub, &lastModel, &lastEffort)
 	if lastAgent == "" {
 		lastAgent = "claude"
 	}
@@ -66,7 +78,7 @@ func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, mod
 	}
 
 	var maxPos sql.NullInt64
-	_ = m.db.QueryRow(`SELECT MAX(position) FROM follow_up_queue WHERE session_id = ? AND status = 'pending'`, sessionID).Scan(&maxPos)
+	_ = m.db.QueryRow(`SELECT MAX(position) FROM follow_up_queue WHERE session_id = ? AND status = 'pending'`, req.SessionID).Scan(&maxPos)
 	position := 1
 	if maxPos.Valid {
 		position = int(maxPos.Int64) + 1
@@ -74,40 +86,41 @@ func (m *Manager) AddToQueue(sessionID string, text string, agent, agentSub, mod
 
 	id := uuid.New().String()
 	attJSON := "[]"
-	if len(attachments) > 0 {
-		b, _ := json.Marshal(attachments)
+	if len(req.Attachments) > 0 {
+		b, _ := json.Marshal(req.Attachments)
 		attJSON = string(b)
 	}
 
-	_, err := m.db.Exec(`INSERT INTO follow_up_queue (id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, status, transcript, message_id, response_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		id, sessionID, text, position, agent, agentSub, model, effort, attJSON, now, source, transcript, messageID, responseID)
+	_, err = m.db.Exec(`INSERT INTO follow_up_queue (id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, status, transcript, message_id, response_id, working_directory)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+		id, req.SessionID, req.Text, position, agent, agentSub, model, effort, attJSON, now, source, req.Transcript, messageID, responseID, workingDirectory)
 	if err != nil {
 		return nil, err
 	}
 
 	return &QueueItem{
-		ID:          id,
-		SessionID:   sessionID,
-		Text:        text,
-		Position:    position,
-		Agent:       agent,
-		AgentSub:    agentSub,
-		Model:       model,
-		Effort:      effort,
-		Attachments: attachments,
-		CreatedAt:   now,
-		Source:      source,
-		Status:      "pending",
-		Transcript:  transcript,
-		MessageID:   messageID,
-		ResponseID:  responseID,
+		ID:               id,
+		SessionID:        req.SessionID,
+		Text:             req.Text,
+		WorkingDirectory: workingDirectory,
+		Position:         position,
+		Agent:            agent,
+		AgentSub:         agentSub,
+		Model:            model,
+		Effort:           effort,
+		Attachments:      req.Attachments,
+		CreatedAt:        now,
+		Source:           source,
+		Status:           "pending",
+		Transcript:       req.Transcript,
+		MessageID:        messageID,
+		ResponseID:       responseID,
 	}, nil
 }
 
 // ListQueue returns pending queue items for a session ordered by position ascending.
 func (m *Manager) ListQueue(sessionID string) ([]QueueItem, error) {
-	rows, err := m.db.Query(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
+	rows, err := m.db.Query(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
 		FROM follow_up_queue WHERE session_id = ? AND status = 'pending' ORDER BY position ASC`, sessionID)
 	if err != nil {
 		return nil, err
@@ -118,7 +131,7 @@ func (m *Manager) ListQueue(sessionID string) ([]QueueItem, error) {
 	for rows.Next() {
 		var q QueueItem
 		var attJSON string
-		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
+		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
 			return nil, err
 		}
 		if attJSON != "" && attJSON != "[]" {
@@ -131,7 +144,7 @@ func (m *Manager) ListQueue(sessionID string) ([]QueueItem, error) {
 
 // ListQueueAll returns all queue items for a session (including completed/failed) ordered by position ascending.
 func (m *Manager) ListQueueAll(sessionID string) ([]QueueItem, error) {
-	rows, err := m.db.Query(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
+	rows, err := m.db.Query(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
 		FROM follow_up_queue WHERE session_id = ? ORDER BY position ASC`, sessionID)
 	if err != nil {
 		return nil, err
@@ -142,7 +155,7 @@ func (m *Manager) ListQueueAll(sessionID string) ([]QueueItem, error) {
 	for rows.Next() {
 		var q QueueItem
 		var attJSON string
-		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
+		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
 			return nil, err
 		}
 		if attJSON != "" && attJSON != "[]" {
@@ -165,8 +178,8 @@ func (m *Manager) UpdateQueueItem(sessionID, itemID string, text string) (*Queue
 	}
 	var q QueueItem
 	var attJSON string
-	err = m.db.QueryRow(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
-		FROM follow_up_queue WHERE id = ?`, itemID).Scan(&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error)
+	err = m.db.QueryRow(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
+		FROM follow_up_queue WHERE id = ?`, itemID).Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error)
 	if err != nil {
 		return nil, err
 	}
@@ -192,9 +205,9 @@ func (m *Manager) PopNextFromQueue(sessionID string) *QueueItem {
 
 	var q QueueItem
 	var attJSON string
-	err = tx.QueryRow(`SELECT id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, transcript, CAST(message_id AS TEXT), COALESCE(response_id, '')
+	err = tx.QueryRow(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, attachments, created_at, source, transcript, CAST(message_id AS TEXT), COALESCE(response_id, '')
 		FROM follow_up_queue WHERE session_id = ? AND status = 'pending' ORDER BY position ASC LIMIT 1`, sessionID).Scan(
-		&q.ID, &q.SessionID, &q.Text, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Transcript, &q.MessageID, &q.ResponseID)
+		&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Transcript, &q.MessageID, &q.ResponseID)
 	if err != nil {
 		return nil
 	}
@@ -341,15 +354,16 @@ func processQueueItem(m *Manager, sessionID string) {
 	}
 
 	result, err := m.Send(SendRequest{
-		Prompt:        item.Text,
-		SessionID:     sessionID,
-		Agent:         item.Agent,
-		AgentSub:      item.AgentSub,
-		Model:         item.Model,
-		Effort:        item.Effort,
-		AttachmentIDs: item.Attachments,
-		MessageID:     item.MessageID,
-		ResponseID:    item.ResponseID,
+		Prompt:           item.Text,
+		SessionID:        sessionID,
+		Agent:            item.Agent,
+		AgentSub:         item.AgentSub,
+		Model:            item.Model,
+		Effort:           item.Effort,
+		AttachmentIDs:    item.Attachments,
+		MessageID:        item.MessageID,
+		ResponseID:       item.ResponseID,
+		WorkingDirectory: item.WorkingDirectory,
 	})
 	if err != nil {
 		log.Printf("processNextFromQueue Send failed: %v", err)

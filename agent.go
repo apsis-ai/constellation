@@ -72,9 +72,16 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query session: %w", err)
 	}
-	workingDirectory, err = m.ensureSessionWorkingDirectory(context.Background(), tx, sessionID)
+	sessionWorkingDirectory, err := m.ensureSessionWorkingDirectory(context.Background(), tx, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("working directory: %w", err)
+	}
+	workingDirectory = sessionWorkingDirectory
+	if strings.TrimSpace(req.WorkingDirectory) != "" {
+		workingDirectory, err = m.validateWorkingDirectory(context.Background(), req.WorkingDirectory, sessionWorkingDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("working directory: %w", err)
+		}
 	}
 
 	// Generate title for new sessions

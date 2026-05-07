@@ -64,24 +64,25 @@ type AttachmentRef struct {
 
 // QueueItem represents a follow-up message waiting to be processed.
 type QueueItem struct {
-	ID          string   `json:"id"`
-	SessionID   string   `json:"session_id"`
-	Text        string   `json:"text"`
-	Position    int      `json:"position"`
-	Agent       string   `json:"agent"`
-	AgentSub    string   `json:"agent_sub"`
-	Model       string   `json:"model"`
-	Effort      string   `json:"effort"`
-	Attachments []string `json:"attachments,omitempty"`
-	CreatedAt   int64    `json:"created_at"`
-	Source      string   `json:"source"`
-	Status      string   `json:"status"`
-	Transcript  string   `json:"transcript,omitempty"`
-	MessageID   string   `json:"message_id,omitempty"`
-	ResponseID  string   `json:"response_id,omitempty"`
-	StartedAt   int64    `json:"started_at,omitempty"`
-	CompletedAt int64    `json:"completed_at,omitempty"`
-	Error       string   `json:"error,omitempty"`
+	ID               string   `json:"id"`
+	SessionID        string   `json:"session_id"`
+	Text             string   `json:"text"`
+	WorkingDirectory string   `json:"working_directory,omitempty"`
+	Position         int      `json:"position"`
+	Agent            string   `json:"agent"`
+	AgentSub         string   `json:"agent_sub"`
+	Model            string   `json:"model"`
+	Effort           string   `json:"effort"`
+	Attachments      []string `json:"attachments,omitempty"`
+	CreatedAt        int64    `json:"created_at"`
+	Source           string   `json:"source"`
+	Status           string   `json:"status"`
+	Transcript       string   `json:"transcript,omitempty"`
+	MessageID        string   `json:"message_id,omitempty"`
+	ResponseID       string   `json:"response_id,omitempty"`
+	StartedAt        int64    `json:"started_at,omitempty"`
+	CompletedAt      int64    `json:"completed_at,omitempty"`
+	Error            string   `json:"error,omitempty"`
 }
 
 // AskUserPending holds a pending ask_user question.
@@ -145,6 +146,22 @@ type HandoffRequest struct {
 	Summary      string `json:"summary"`
 	CurrentState string `json:"current_state"`
 	PendingTasks string `json:"pending_tasks"`
+}
+
+// QueueAddRequest contains all parameters for enqueueing a follow-up message.
+type QueueAddRequest struct {
+	SessionID        string
+	Text             string
+	WorkingDirectory string
+	Agent            string
+	AgentSub         string
+	Model            string
+	Effort           string
+	Attachments      []string
+	Source           string
+	Transcript       string
+	MessageID        string
+	ResponseID       string
 }
 
 // SendRequest contains all parameters for sending a prompt.

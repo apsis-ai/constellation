@@ -227,7 +227,7 @@ var queueAddCmd = &cobra.Command{
 		defer mgr.Close()
 
 		text := strings.Join(args, " ")
-		item, err := mgr.AddToQueue(queueSessionID, text, "", "", "", "", nil, "text", "")
+		item, err := mgr.AddToQueue(mux.QueueAddRequest{SessionID: queueSessionID, Text: text})
 		if err != nil {
 			return err
 		}

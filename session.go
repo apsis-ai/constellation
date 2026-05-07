@@ -382,6 +382,7 @@ func initDB(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN started_at INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN completed_at INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN error TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN working_directory TEXT NOT NULL DEFAULT ''`)
 
 	return nil
 }
