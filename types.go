@@ -159,10 +159,6 @@ type QueueAddRequest struct {
 	WorkingDirectory string
 	ProviderID       string
 	ConfigValues     map[string]any
-	Agent            string
-	AgentSub         string
-	Model            string
-	Effort           string
 	Attachments      []string
 	Source           string
 	Transcript       string
@@ -183,10 +179,6 @@ type SendRequest struct {
 	SessionID        string
 	ProviderID       string
 	ConfigValues     map[string]any
-	Agent            string
-	AgentSub         string
-	Model            string
-	Effort           string
 	AttachmentIDs    []string
 	MessageID        string
 	ResponseID       string

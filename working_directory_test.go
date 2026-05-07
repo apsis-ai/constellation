@@ -169,7 +169,7 @@ func TestSendBackfillsWorkingDirectoryForLegacySession(t *testing.T) {
 	registerFakeProvider(t, m)
 	insertLegacySessionWithoutCWD(t, m.db, "legacy")
 
-	_, err := m.Send(SendRequest{SessionID: "legacy", Prompt: "pwd", Agent: "fake"})
+	_, err := m.Send(SendRequest{SessionID: "legacy", Prompt: "pwd", ProviderID: "fake"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestSendInvalidWorkingDirectoryDoesNotPersistUserMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := m.Send(SendRequest{SessionID: "bad-cwd", Prompt: "pwd", Agent: "fake"})
+	_, err := m.Send(SendRequest{SessionID: "bad-cwd", Prompt: "pwd", ProviderID: "fake"})
 	if err == nil {
 		t.Fatal("expected working directory error")
 	}

@@ -427,16 +427,6 @@ func (p *CLIProvider) BuildArgs(req ProviderRequest) []string {
 
 	if req.RuntimeConfig != nil && len(req.ConfigValues) > 0 {
 		args = append(args, buildMappedArgs(*req.RuntimeConfig, ConfigValues(req.ConfigValues))...)
-	} else {
-		if req.Model != "" && p.config.ModelFlag != "" {
-			args = append(args, p.config.ModelFlag, req.Model)
-		}
-		if req.Effort != "" && p.config.EffortFlag != "" {
-			args = append(args, p.config.EffortFlag, req.Effort)
-		}
-		if req.SubAgent != "" && req.SubAgent != "default" && p.config.SubAgentFlag != "" {
-			args = append(args, p.config.SubAgentFlag, req.SubAgent)
-		}
 	}
 	if req.ConversationID != "" && p.config.ResumeFlag != "" {
 		args = append(args, p.config.ResumeFlag, req.ConversationID)

@@ -17,7 +17,7 @@ func TestQueuePersistsCanonicalConfigValues(t *testing.T) {
 	defer m.Close()
 	m.CreateSession("q-canonical")
 
-	queueItem, err := m.AddToQueue(QueueAddRequest{SessionID: "q-canonical", Text: "follow-up", ProviderID: "pi", ConfigValues: map[string]any{"model": "openai/gpt-5"}, Agent: "pi", Model: "openai/gpt-5"})
+	queueItem, err := m.AddToQueue(QueueAddRequest{SessionID: "q-canonical", Text: "follow-up", ProviderID: "pi", ConfigValues: map[string]any{"model": "openai/gpt-5"}})
 
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestAddToQueue_RequiresText(t *testing.T) {
 	}
 }
 
-func TestAddToQueue_InheritsAgentFromSession(t *testing.T) {
+func TestAddToQueue_InheritsProviderFromSessionWithoutLegacyFields(t *testing.T) {
 	cfg := tempConfig(t)
 	m, err := NewManager(cfg)
 	if err != nil {
@@ -119,17 +119,20 @@ func TestAddToQueue_InheritsAgentFromSession(t *testing.T) {
 	}
 	defer m.Close()
 	m.CreateSession("q4")
-	m.db.Exec(`UPDATE sessions SET last_agent = 'codex', last_model = 'gpt-5' WHERE id = 'q4'`)
+	m.db.Exec(`UPDATE sessions SET provider_id = 'codex', last_agent = 'legacy-agent', last_model = 'gpt-5', config_values_json = '{"model":"gpt-5"}' WHERE id = 'q4'`)
 
 	item, err := m.AddToQueue(QueueAddRequest{SessionID: "q4", Text: "follow-up"})
 	if err != nil {
 		t.Fatalf("AddToQueue: %v", err)
 	}
-	if item.Agent != "codex" {
-		t.Errorf("expected agent 'codex', got %q", item.Agent)
+	if item.ProviderID != "codex" {
+		t.Errorf("expected provider 'codex', got %q", item.ProviderID)
 	}
-	if item.Model != "gpt-5" {
-		t.Errorf("expected model 'gpt-5', got %q", item.Model)
+	if item.Agent != "" || item.Model != "" || item.Effort != "" || item.AgentSub != "" {
+		t.Errorf("expected legacy queue fields to be empty, got agent=%q sub=%q model=%q effort=%q", item.Agent, item.AgentSub, item.Model, item.Effort)
+	}
+	if item.ConfigValues["model"] != "gpt-5" {
+		t.Errorf("expected config_values model, got %#v", item.ConfigValues)
 	}
 }
 
@@ -722,7 +725,7 @@ func TestProcessQueueItemUsesStoredWorkingDirectory(t *testing.T) {
 	if _, err := m.SetWorkingDirectory("queue-cwd-stored", first); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.AddToQueue(QueueAddRequest{SessionID: "queue-cwd-stored", Text: "echo me", Agent: "fake"}); err != nil {
+	if _, err := m.AddToQueue(QueueAddRequest{SessionID: "queue-cwd-stored", Text: "echo me", ProviderID: "fake"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.SetWorkingDirectory("queue-cwd-stored", second); err != nil {
@@ -755,7 +758,7 @@ func TestProcessQueueItemFailsWhenStoredWorkingDirectoryBecomesInvalid(t *testin
 	if _, err := m.SetWorkingDirectory("queue-cwd-invalid", first); err != nil {
 		t.Fatal(err)
 	}
-	item, err := m.AddToQueue(QueueAddRequest{SessionID: "queue-cwd-invalid", Text: "should fail", Agent: "fake"})
+	item, err := m.AddToQueue(QueueAddRequest{SessionID: "queue-cwd-invalid", Text: "should fail", ProviderID: "fake"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,7 +813,7 @@ func TestSendRequestWorkingDirectoryOverridesSessionWorkingDirectory(t *testing.
 	result, err := m.Send(SendRequest{
 		SessionID:        "send-cwd-override",
 		Prompt:           "hello",
-		Agent:            "fake",
+		ProviderID:       "fake",
 		WorkingDirectory: override,
 	})
 	if err != nil {

@@ -57,20 +57,10 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 
 	providerID := req.ProviderID
 	configValues := req.ConfigValues
-	agent := req.Agent
-	agentSub := req.AgentSub
-	model := req.Model
-	effort := req.Effort
-	var lastAgent, lastAgentSub, lastModel, lastEffort, lastProviderID, lastConfigValuesJSON string
-	_ = m.db.QueryRow(`SELECT COALESCE(last_agent,'claude'), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), COALESCE(provider_id,''), COALESCE(config_values_json,'{}') FROM sessions WHERE id = ?`, req.SessionID).Scan(&lastAgent, &lastAgentSub, &lastModel, &lastEffort, &lastProviderID, &lastConfigValuesJSON)
-	if lastAgent == "" {
-		lastAgent = "claude"
-	}
+	var lastAgent, lastProviderID, lastConfigValuesJSON string
+	_ = m.db.QueryRow(`SELECT COALESCE(last_agent,'claude'), COALESCE(provider_id,''), COALESCE(config_values_json,'{}') FROM sessions WHERE id = ?`, req.SessionID).Scan(&lastAgent, &lastProviderID, &lastConfigValuesJSON)
 	if providerID == "" {
 		providerID = lastProviderID
-	}
-	if providerID == "" {
-		providerID = agent
 	}
 	if providerID == "" {
 		providerID = lastAgent
@@ -80,21 +70,6 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 	}
 	if configValues == nil || len(configValues) == 0 {
 		configValues = UnmarshalConfigValues(lastConfigValuesJSON)
-	}
-	if agent == "" {
-		agent = providerID
-	}
-	if agent == "" {
-		agent = lastAgent
-	}
-	if agentSub == "" {
-		agentSub = lastAgentSub
-	}
-	if model == "" {
-		model = lastModel
-	}
-	if effort == "" {
-		effort = lastEffort
 	}
 
 	var maxPos sql.NullInt64
@@ -112,8 +87,8 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 	}
 
 	_, err = m.db.Exec(`INSERT INTO follow_up_queue (id, session_id, text, position, provider_id, config_values_json, agent, agent_sub, model, effort, attachments, created_at, source, status, transcript, message_id, response_id, working_directory)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-		id, req.SessionID, req.Text, position, providerID, MarshalConfigValues(configValues), agent, agentSub, model, effort, attJSON, now, source, req.Transcript, messageID, responseID, workingDirectory)
+		VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+		id, req.SessionID, req.Text, position, providerID, MarshalConfigValues(configValues), attJSON, now, source, req.Transcript, messageID, responseID, workingDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -126,10 +101,6 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 		Position:         position,
 		ProviderID:       providerID,
 		ConfigValues:     configValues,
-		Agent:            agent,
-		AgentSub:         agentSub,
-		Model:            model,
-		Effort:           effort,
 		Attachments:      req.Attachments,
 		CreatedAt:        now,
 		Source:           source,
@@ -413,10 +384,6 @@ func processQueueItem(m *Manager, sessionID string) {
 		SessionID:        sessionID,
 		ProviderID:       providerID,
 		ConfigValues:     item.ConfigValues,
-		Agent:            providerID,
-		AgentSub:         item.AgentSub,
-		Model:            item.Model,
-		Effort:           item.Effort,
 		AttachmentIDs:    item.Attachments,
 		MessageID:        item.MessageID,
 		ResponseID:       item.ResponseID,

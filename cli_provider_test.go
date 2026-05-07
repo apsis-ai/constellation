@@ -13,12 +13,13 @@ func TestCLIProvider_BuildArgs_Claude(t *testing.T) {
 	cfg := BuiltinCLIConfigs()[0] // claude
 	p := NewCLIProvider(cfg, parsers)
 
+	runtimeConfig := ProviderRuntimeConfig{Sections: []ConfigSection{{Fields: []ConfigField{{Key: "model", Mapping: &ExecutionMapping{Kind: "arg", Name: "--model"}}}}, {Fields: []ConfigField{{Key: "effort", Mapping: &ExecutionMapping{Kind: "arg", Name: "--effort"}}}}}}
 	req := ProviderRequest{
 		SessionID:      "test-session",
 		Prompt:         "hello world",
-		Model:          "opus",
-		Effort:         "high",
 		ConversationID: "conv-123",
+		RuntimeConfig:  &runtimeConfig,
+		ConfigValues:   map[string]any{"model": "opus", "effort": "high"},
 	}
 
 	args := p.BuildArgs(req)
@@ -46,9 +47,11 @@ func TestCLIProvider_BuildArgs_Codex(t *testing.T) {
 	cfg := BuiltinCLIConfigs()[1] // codex
 	p := NewCLIProvider(cfg, parsers)
 
+	runtimeConfig := ProviderRuntimeConfig{Sections: []ConfigSection{{Fields: []ConfigField{{Key: "model", Mapping: &ExecutionMapping{Kind: "arg", Name: "-m"}}}}}}
 	req := ProviderRequest{
-		Prompt: "fix the bug",
-		Model:  "o4-mini",
+		Prompt:        "fix the bug",
+		RuntimeConfig: &runtimeConfig,
+		ConfigValues:  map[string]any{"model": "o4-mini"},
 	}
 
 	args := p.BuildArgs(req)
@@ -93,11 +96,12 @@ func TestCLIProvider_BuildArgs_Pi(t *testing.T) {
 	cfg := BuiltinCLIConfigs()[3] // pi
 	p := NewCLIProvider(cfg, parsers)
 
+	runtimeConfig := ProviderRuntimeConfig{Sections: []ConfigSection{{Fields: []ConfigField{{Key: "model", Mapping: &ExecutionMapping{Kind: "arg", Name: "--model"}}}}, {Fields: []ConfigField{{Key: "effort", Mapping: &ExecutionMapping{Kind: "arg", Name: "--thinking"}}}}}}
 	req := ProviderRequest{
 		Prompt:         "write docs",
-		Model:          "openai/gpt-5.2",
-		Effort:         "high",
 		ConversationID: "pi-session-123",
+		RuntimeConfig:  &runtimeConfig,
+		ConfigValues:   map[string]any{"model": "openai/gpt-5.2", "effort": "high"},
 	}
 
 	args := p.BuildArgs(req)
@@ -114,6 +118,19 @@ func TestCLIProvider_BuildArgs_Pi(t *testing.T) {
 	}
 	if !strings.Contains(joined, "--session pi-session-123") {
 		t.Errorf("expected --session pi-session-123, got: %s", joined)
+	}
+}
+
+func TestCLIProvider_BuildArgsIgnoresLegacyModelWithoutRuntimeConfig(t *testing.T) {
+	parsers := NewParserRegistry()
+	cfg := BuiltinCLIConfigs()[0]
+	p := NewCLIProvider(cfg, parsers)
+
+	args := p.BuildArgs(ProviderRequest{Prompt: "hello", Model: "opus", Effort: "high"})
+	joined := strings.Join(args, " ")
+
+	if strings.Contains(joined, "--model opus") || strings.Contains(joined, "--effort high") {
+		t.Fatalf("expected legacy fields to be ignored without runtime config, got: %s", joined)
 	}
 }
 

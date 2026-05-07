@@ -40,15 +40,9 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	}
 	providerID := req.ProviderID
 	if providerID == "" {
-		providerID = req.Agent
-	}
-	if providerID == "" {
 		providerID = "claude"
 	}
-	agent := req.Agent
-	if agent == "" {
-		agent = providerID
-	}
+	agent := providerID
 	userMessageID := strings.TrimSpace(req.MessageID)
 	if userMessageID == "" {
 		userMessageID = uuid.NewString()
@@ -178,9 +172,6 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	provReq := ProviderRequest{
 		SessionID:        sessionID,
 		Prompt:           prompt,
-		Model:            req.Model,
-		Effort:           req.Effort,
-		SubAgent:         req.AgentSub,
 		ConversationID:   conversationID,
 		Attachments:      attachments,
 		MCPConfig:        mcpConfig,
@@ -273,11 +264,11 @@ func (m *Manager) runAgentLoop(sessionID, agent string, req SendRequest, cmd *ex
 
 	now := nowUnix()
 	if result.ConversationID != "" {
-		_, _ = m.db.Exec(`UPDATE sessions SET conversation_id = ?, token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = ?, last_model = ?, last_effort = ?, provider_id = ?, config_values_json = ? WHERE id = ?`,
-			result.ConversationID, result.TokenUsage, now, agent, req.AgentSub, req.Model, req.Effort, agent, MarshalConfigValues(req.ConfigValues), sessionID)
+		_, _ = m.db.Exec(`UPDATE sessions SET conversation_id = ?, token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = '', last_model = '', last_effort = '', provider_id = ?, config_values_json = ? WHERE id = ?`,
+			result.ConversationID, result.TokenUsage, now, agent, agent, MarshalConfigValues(req.ConfigValues), sessionID)
 	} else {
-		_, _ = m.db.Exec(`UPDATE sessions SET token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = ?, last_model = ?, last_effort = ?, provider_id = ?, config_values_json = ? WHERE id = ?`,
-			result.TokenUsage, now, agent, req.AgentSub, req.Model, req.Effort, agent, MarshalConfigValues(req.ConfigValues), sessionID)
+		_, _ = m.db.Exec(`UPDATE sessions SET token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = '', last_model = '', last_effort = '', provider_id = ?, config_values_json = ? WHERE id = ?`,
+			result.TokenUsage, now, agent, agent, MarshalConfigValues(req.ConfigValues), sessionID)
 	}
 
 	if result.FullText != "" {

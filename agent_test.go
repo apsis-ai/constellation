@@ -58,8 +58,8 @@ func TestSend_UnknownProvider(t *testing.T) {
 	defer m.Close()
 
 	_, err = m.Send(SendRequest{
-		Agent:  "unknown-agent",
-		Prompt: "hello",
+		ProviderID: "unknown-agent",
+		Prompt:     "hello",
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
@@ -84,8 +84,8 @@ func TestSend_ProviderDispatch_UsesRegistry(t *testing.T) {
 	}
 
 	_, err = m.Send(SendRequest{
-		Agent:  "claude",
-		Prompt: "hello",
+		ProviderID: "claude",
+		Prompt:     "hello",
 	})
 	if err == nil {
 		t.Fatal("expected error when provider disabled")

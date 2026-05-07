@@ -155,11 +155,15 @@ func runPromptInteractive(text string) error {
 	}
 	defer mgr.Close()
 
+	configValues := map[string]any{}
+	if promptModel != "" {
+		configValues["model"] = promptModel
+	}
 	result, err := mgr.Send(mux.SendRequest{
-		Prompt:    text,
-		SessionID: promptSessionID,
-		Agent:     promptAgent,
-		Model:     promptModel,
+		Prompt:       text,
+		SessionID:    promptSessionID,
+		ProviderID:   promptAgent,
+		ConfigValues: configValues,
 	})
 	if err != nil {
 		return err
