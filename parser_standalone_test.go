@@ -314,6 +314,61 @@ func TestOpenCodeParser_Error(t *testing.T) {
 	}
 }
 
+// --- PiParser standalone tests ---
+
+func TestPiParser_TextAndSession(t *testing.T) {
+	input := `{"type":"session","version":3,"id":"pi-session-123"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Hello "}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"from Pi"}}
+`
+	cb, _ := testCallbacks()
+	p := &PiParser{Callbacks: cb}
+	ch := make(chan ChanEvent, 10)
+
+	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	close(ch)
+
+	var combined strings.Builder
+	for ev := range ch {
+		if ev.Type == ChanText {
+			combined.WriteString(ev.Text)
+		}
+	}
+	if combined.String() != "Hello from Pi" {
+		t.Fatalf("expected Pi text, got %q", combined.String())
+	}
+	if result.FullText != "Hello from Pi" {
+		t.Fatalf("expected full text, got %q", result.FullText)
+	}
+	if result.ConversationID != "pi-session-123" {
+		t.Fatalf("expected conversation ID, got %q", result.ConversationID)
+	}
+}
+
+func TestPiParser_ToolExecution(t *testing.T) {
+	input := `{"type":"tool_execution_start","toolName":"bash","args":{"command":"go test ./..."}}
+`
+	cb, rec := testCallbacks()
+	p := &PiParser{Callbacks: cb}
+	ch := make(chan ChanEvent, 10)
+
+	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	close(ch)
+
+	foundAction := false
+	for ev := range ch {
+		if ev.Type == ChanAction && strings.Contains(ev.JSON, "bash") {
+			foundAction = true
+		}
+	}
+	if !foundAction {
+		t.Fatal("expected action event")
+	}
+	if len(rec.trackedActions) != 1 || rec.trackedActions[0].tool != "bash" {
+		t.Fatalf("expected tracked bash action, got %#v", rec.trackedActions)
+	}
+}
+
 // --- CursorParser standalone tests ---
 
 func TestCursorParser_TextAndResult(t *testing.T) {

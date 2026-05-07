@@ -25,6 +25,14 @@
 - **Output format**: NDJSON with `type: "text"`, `type: "tool_use"`, `type: "step_finish"`, `type: "error"`
 - **Resume**: Supports resume via session ID from events
 
+### Pi
+
+- **Binary**: `pi`
+- **Default model**: `anthropic/claude-sonnet-4-5`
+- **Flags**: `--mode json`, `--session` (if resuming), `--model`, `--thinking`
+- **Output format**: JSONL with `type: "message_update"` (text deltas), `type: "tool_execution_*"`, and `type: "turn_end"`
+- **Resume**: Supports resume via Pi session ID
+
 ### Cursor
 
 - **Binary**: `agent`
@@ -41,6 +49,7 @@ The `resolveAgentBinary()` function maps agent names to CLI binaries and verifie
 | `claude` | `claude` |
 | `codex` | `codex` |
 | `opencode` | `opencode` |
+| `pi` | `pi` |
 | `cursor` | `agent` |
 
 ## Registry

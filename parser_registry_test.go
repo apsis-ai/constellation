@@ -10,7 +10,7 @@ func TestParserRegistry_GetParser(t *testing.T) {
 	reg := NewParserRegistry()
 
 	// Act & Assert - known parsers
-	for _, name := range []string{"claude", "codex", "opencode", "cursor", "other"} {
+	for _, name := range []string{"claude", "codex", "opencode", "cursor", "pi", "other"} {
 		factory, ok := reg.GetParser(name)
 		if !ok {
 			t.Errorf("expected parser %q to be registered", name)
@@ -76,7 +76,7 @@ func TestParserRegistry_List(t *testing.T) {
 
 	// Assert
 	sort.Strings(names)
-	expected := []string{"claude", "codex", "cursor", "opencode", "other"}
+	expected := []string{"claude", "codex", "cursor", "opencode", "other", "pi"}
 	if len(names) != len(expected) {
 		t.Fatalf("expected %d parsers, got %d: %v", len(expected), len(names), names)
 	}

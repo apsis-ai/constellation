@@ -88,6 +88,35 @@ func TestCLIProvider_BuildArgs_OpenCode(t *testing.T) {
 	}
 }
 
+func TestCLIProvider_BuildArgs_Pi(t *testing.T) {
+	parsers := NewParserRegistry()
+	cfg := BuiltinCLIConfigs()[3] // pi
+	p := NewCLIProvider(cfg, parsers)
+
+	req := ProviderRequest{
+		Prompt:         "write docs",
+		Model:          "openai/gpt-5.2",
+		Effort:         "high",
+		ConversationID: "pi-session-123",
+	}
+
+	args := p.BuildArgs(req)
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "--mode json") {
+		t.Errorf("expected --mode json, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--model openai/gpt-5.2") {
+		t.Errorf("expected --model openai/gpt-5.2, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--thinking high") {
+		t.Errorf("expected --thinking high, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--session pi-session-123") {
+		t.Errorf("expected --session pi-session-123, got: %s", joined)
+	}
+}
+
 func TestCLIProvider_Validate(t *testing.T) {
 	parsers := NewParserRegistry()
 	// Test with a binary that doesn't exist
@@ -134,6 +163,28 @@ func TestCLIProvider_OpenCodeDiscoveryUsesProviderQualifiedLabels(t *testing.T) 
 	}
 }
 
+func TestCLIProvider_PiDiscoveryParsesTable(t *testing.T) {
+	cfg := BuiltinCLIConfigs()[3] // pi
+	cfg.Binary = fakeModelBinary(t, "Warning: No models match pattern \"openai-codex/gpt-5\"\nprovider      model                context  max-out  thinking  images\nopenai-codex  gpt-5.2              272K     128K     yes       yes\ngoogle         gemini-3-pro         1M       64K      no        yes\n")
+	p := NewCLIProvider(cfg, NewParserRegistry())
+
+	models, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	model, ok := findModel(models, "openai-codex/gpt-5.2")
+	if !ok {
+		t.Fatalf("expected openai-codex/gpt-5.2 in discovered models, got %#v", models)
+	}
+	if model.Name != "openai-codex/gpt-5.2" {
+		t.Fatalf("expected full provider-qualified label, got %q", model.Name)
+	}
+	if len(model.Efforts) == 0 {
+		t.Fatalf("expected thinking-capable Pi model to expose efforts")
+	}
+}
+
 func TestCLIProviderBuildCommandUsesWorkingDirectory(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "fake-cli")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho ok\n"), 0755); err != nil {
@@ -159,6 +210,7 @@ func TestCLIProvider_SupportsResume(t *testing.T) {
 		"claude":   true,
 		"codex":    false,
 		"opencode": true,
+		"pi":       true,
 		"agent":    true,
 	}
 	for _, cfg := range configs {

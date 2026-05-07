@@ -39,6 +39,7 @@ type ModelDiscoveryConfig struct {
 	//   "lines"          - one model ID per line; "provider/model" prefix is stripped for the label
 	//   "full-lines"     - one model ID per line; full ID is also used as the label
 	//   "dash"           - "id - Label (annotation)" per line; header/footer lines are skipped
+	//   "pi-table"       - pi --list-models table output (provider/model IDs)
 	//   "codex-cache"    - Codex models_cache.json format (filters by visibility: "list")
 	//   "anthropic-api"  - Anthropic /v1/models response with data[].{id, display_name}
 	Format string `json:"format"`
@@ -182,6 +183,8 @@ func discoverModelsFromCLI(ctx context.Context, binary string, disc *ModelDiscov
 		return parseFullLinesFormat(lines, disc.Filter), nil
 	case "dash":
 		return parseDashFormat(lines, disc.Filter), nil
+	case "pi-table":
+		return parsePiTableFormat(lines, disc.Filter), nil
 	default:
 		return parseLinesFormat(lines, disc.Filter), nil
 	}
@@ -350,6 +353,31 @@ func parseDashFormat(lines []string, filter []string) []ModelInfo {
 			continue
 		}
 		models = append(models, ModelInfo{ID: id, Name: label})
+	}
+	return models
+}
+
+// parsePiTableFormat parses `pi --list-models` table output.
+func parsePiTableFormat(lines []string, filter []string) []ModelInfo {
+	var models []ModelInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Warning:") || strings.HasPrefix(line, "provider ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		id := fields[0] + "/" + fields[1]
+		if matchesFilter(id, filter) {
+			continue
+		}
+		model := ModelInfo{ID: id, Name: id}
+		if len(fields) >= 5 && fields[4] == "yes" {
+			model.Efforts = []string{"minimal", "low", "medium", "high", "xhigh"}
+		}
+		models = append(models, model)
 	}
 	return models
 }
@@ -524,6 +552,25 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 				Command: []string{"models"},
 				Format:  "full-lines",
 				Filter:  []string{"claude"},
+			},
+		},
+		{
+			ProviderID:     "pi",
+			Name:           "Pi",
+			Binary:         "pi",
+			BaseArgs:       []string{"--mode", "json"},
+			ParserType:     "pi",
+			SupportsResume: true,
+			ResumeFlag:     "--session",
+			ModelFlag:      "--model",
+			EffortFlag:     "--thinking",
+			DefaultModelID: "anthropic/claude-sonnet-4-5",
+			AttachmentMode: "prompt",
+			Models:         []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5.2", "google/gemini-3-pro"},
+			Efforts:        []string{"off", "minimal", "low", "medium", "high", "xhigh"},
+			ModelDiscovery: &ModelDiscoveryConfig{
+				Command: []string{"--list-models"},
+				Format:  "pi-table",
 			},
 		},
 		{

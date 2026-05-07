@@ -200,7 +200,7 @@ func fakeModelBinary(t *testing.T, output string) string {
 
 	path := filepath.Join(t.TempDir(), "models-cli")
 	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"models\" ]; then\n" +
+		"if [ \"$1\" = \"models\" ] || [ \"$1\" = \"--list-models\" ]; then\n" +
 		"  cat <<'EOF'\n" +
 		output +
 		"EOF\n" +

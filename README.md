@@ -8,7 +8,7 @@ Constellation is an orchestration library for multiplexing AI agent CLIs. It pub
 
 ## Features
 
-- **Multi-agent support** — Claude, Codex, OpenCode, and Cursor via subprocess spawning
+- **Multi-agent support** — Claude, Codex, OpenCode, Pi, and Cursor via subprocess spawning
 - **Session management** — Create, list, delete sessions with SQLite persistence
 - **Real-time streaming** — SSE broadcasting with ring buffer for reconnection support
 - **Queue system** — Position-based follow-up queue with pause/resume and atomic processing
@@ -89,6 +89,7 @@ func main() {
 | Claude | `claude` | sonnet | NDJSON (assistant/result) |
 | Codex | `codex` | o4-mini | NDJSON (item.completed/turn.completed) |
 | OpenCode | `opencode` | — | NDJSON (text/tool_use/step_finish) |
+| Pi | `pi` | anthropic/claude-sonnet-4-5 | JSONL (message_update/tool_execution/turn_end) |
 | Cursor | `agent` | — | NDJSON (assistant/tool_call/result) |
 
 ## Related Projects
@@ -98,7 +99,7 @@ func main() {
 ## Requirements
 
 - Go 1.24+
-- At least one agent CLI installed on PATH (`claude`, `codex`, `opencode`, or `agent`)
+- At least one agent CLI installed on PATH (`claude`, `codex`, `opencode`, `pi`, or `agent`)
 - Optional: `whisper.cpp` binary for speech-to-text
 
 ## License

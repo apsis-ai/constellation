@@ -62,7 +62,7 @@ Sends a prompt to an agent. Creates the session if it doesn't exist, persists th
 |-------|------|-------------|
 | Prompt | string | The user message (required) |
 | SessionID | string | Session to use (auto-generated if empty) |
-| Agent | string | Agent name: claude, codex, opencode, cursor (default: claude) |
+| Agent | string | Agent name: claude, codex, opencode, pi, cursor (default: claude) |
 | AgentSub | string | Sub-agent identifier |
 | Model | string | Model override |
 | Effort | string | Effort level |
@@ -201,7 +201,7 @@ Subscribes to global session notifications (created, deleted, status changes).
 ```go
 func NewRegistry() *Registry
 ```
-Creates a registry pre-populated with default agents (Claude, Codex, OpenCode, Cursor).
+Creates a registry pre-populated with default agents (Claude, Codex, OpenCode, Pi, Cursor).
 
 ```go
 func (r *Registry) ListAgents() []AgentInfo

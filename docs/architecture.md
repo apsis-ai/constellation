@@ -41,6 +41,7 @@ Each supported agent has a dedicated NDJSON parser that normalizes output into `
 - **Claude**: Parses `assistant` events (text/tool_use blocks) and `result` events
 - **Codex**: Parses `item.completed`, `item.delta`, and `turn.completed` events
 - **OpenCode**: Parses `text`, `tool_use`, `step_finish`, and `error` events
+- **Pi**: Parses `message_update`, `tool_execution_*`, `turn_end`, and session header events
 - **Cursor**: Parses `assistant`, `tool_call`, `result`, and `error` events
 
 ### SessionBroadcaster (`broadcast.go`)

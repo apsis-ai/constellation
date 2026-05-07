@@ -23,11 +23,11 @@ func TestProviderRegistry_RegisterBuiltins(t *testing.T) {
 	}
 
 	providers := reg.List()
-	if len(providers) != 4 {
-		t.Errorf("expected 4 providers, got %d", len(providers))
+	if len(providers) != 5 {
+		t.Errorf("expected 5 providers, got %d", len(providers))
 	}
 
-	for _, id := range []string{"claude", "codex", "opencode", "agent"} {
+	for _, id := range []string{"claude", "codex", "opencode", "pi", "agent"} {
 		p, ok := reg.Get(id)
 		if !ok {
 			t.Errorf("expected provider %s to be registered", id)
@@ -158,8 +158,8 @@ func TestProviderRegistry_Persistence(t *testing.T) {
 	}
 
 	providers := reg2.List()
-	if len(providers) != 4 {
-		t.Errorf("expected 4 providers after reload, got %d", len(providers))
+	if len(providers) != 5 {
+		t.Errorf("expected 5 providers after reload, got %d", len(providers))
 	}
 }
 

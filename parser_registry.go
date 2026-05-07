@@ -17,6 +17,7 @@ func NewParserRegistry() *ParserRegistry {
 	r.Register("codex", func(cb ParserCallbacks) OutputParser { return &CodexParser{Callbacks: cb} })
 	r.Register("opencode", func(cb ParserCallbacks) OutputParser { return &OpenCodeParser{Callbacks: cb} })
 	r.Register("cursor", func(cb ParserCallbacks) OutputParser { return &CursorParser{Callbacks: cb} })
+	r.Register("pi", func(cb ParserCallbacks) OutputParser { return &PiParser{Callbacks: cb} })
 	r.Register("other", func(cb ParserCallbacks) OutputParser { return &RawParser{Callbacks: cb} })
 	return r
 }
