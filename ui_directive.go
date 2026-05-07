@@ -11,6 +11,13 @@ import (
 
 var perigeeUIFenceRE = regexp.MustCompile("(?s)```perigee-ui\\s*\\n(.*?)\\n```")
 
+var allowedUIKinds = map[string]struct{}{"text": {}, "card": {}}
+var allowedUISchemas = map[string]struct{}{
+	"rationale_summary": {},
+	"action_status":     {},
+	"choice":            {},
+}
+
 type parsedUIDirective struct {
 	Block UIBlockEvent
 	Raw   string
@@ -56,6 +63,26 @@ func decodePerigeeUIDirective(messageID, raw string) (UIBlockEvent, error) {
 	}
 	if directive.Kind == "" || directive.Schema == "" || directive.SchemaVersion <= 0 {
 		return UIBlockEvent{}, fmt.Errorf("missing required perigee-ui fields")
+	}
+	if _, ok := allowedUIKinds[directive.Kind]; !ok {
+		return UIBlockEvent{}, fmt.Errorf("unsupported perigee-ui kind %q", directive.Kind)
+	}
+	if _, ok := allowedUISchemas[directive.Schema]; !ok {
+		return UIBlockEvent{}, fmt.Errorf("unsupported perigee-ui schema %q", directive.Schema)
+	}
+	switch directive.Schema {
+	case "rationale_summary":
+		if directive.Text == "" {
+			return UIBlockEvent{}, fmt.Errorf("rationale_summary requires text")
+		}
+	case "action_status":
+		if directive.Label == "" || directive.State == "" {
+			return UIBlockEvent{}, fmt.Errorf("action_status requires label and state")
+		}
+	case "choice":
+		if directive.Title == "" || len(directive.Options) == 0 {
+			return UIBlockEvent{}, fmt.Errorf("choice requires title and options")
+		}
 	}
 	blockID := directive.ID
 	if blockID == "" {

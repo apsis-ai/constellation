@@ -41,8 +41,28 @@ func TestParsePerigeeUIDirectivesKeepsInvalidFenceVisible(t *testing.T) {
 	}
 }
 
+func TestParsePerigeeUIDirectivesKeepsUnsupportedSchemaVisible(t *testing.T) {
+	input := "```perigee-ui\n{\"kind\":\"card\",\"schema\":\"unknown\",\"schemaVersion\":1,\"id\":\"x\"}\n```"
+
+	visible, blocks, invalid := parsePerigeeUIDirectives("m1", input)
+
+	if len(blocks) != 0 || len(invalid) != 1 || visible != input {
+		t.Fatalf("unsupported schema should fall back to text; visible=%q blocks=%d invalid=%d", visible, len(blocks), len(invalid))
+	}
+}
+
+func TestParsePerigeeUIDirectivesRejectsChoiceWithoutOptions(t *testing.T) {
+	input := "```perigee-ui\n{\"kind\":\"card\",\"schema\":\"choice\",\"schemaVersion\":1,\"id\":\"x\",\"title\":\"Pick\"}\n```"
+
+	visible, blocks, invalid := parsePerigeeUIDirectives("m1", input)
+
+	if len(blocks) != 0 || len(invalid) != 1 || visible != input {
+		t.Fatalf("choice without options should fall back to text; visible=%q blocks=%d invalid=%d", visible, len(blocks), len(invalid))
+	}
+}
+
 func TestParsePerigeeUIDirectivesGeneratesStableID(t *testing.T) {
-	input := "```perigee-ui\n{\"kind\":\"card\",\"schema\":\"choice\",\"schemaVersion\":1,\"title\":\"Pick\"}\n```"
+	input := "```perigee-ui\n{\"kind\":\"card\",\"schema\":\"choice\",\"schemaVersion\":1,\"title\":\"Pick\",\"options\":[{\"id\":\"a\",\"label\":\"A\"}]}\n```"
 
 	_, first, invalid := parsePerigeeUIDirectives("m1", input)
 	_, second, _ := parsePerigeeUIDirectives("m1", input)
