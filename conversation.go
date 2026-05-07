@@ -10,7 +10,7 @@ import (
 
 // appendConversation appends a ConversationEntry to the session's conversation.jsonl.
 func (m *Manager) AppendUIBlock(sessionID string, block UIBlockEvent, eventType SessionStreamEventType) {
-	m.appendConversation(sessionID, ConversationEntry{
+	m.AppendConversationEntry(sessionID, ConversationEntry{
 		ID:            block.MessageID,
 		Role:          "ui_block",
 		Content:       "",
@@ -22,6 +22,10 @@ func (m *Manager) AppendUIBlock(sessionID string, block UIBlockEvent, eventType 
 		Payload:       map[string]interface{}(block.Payload),
 		DisplayAs:     "info",
 	})
+}
+
+func (m *Manager) AppendConversationEntry(sessionID string, entry ConversationEntry) {
+	m.appendConversation(sessionID, entry)
 }
 
 func (m *Manager) appendConversation(sessionID string, entry ConversationEntry) {
