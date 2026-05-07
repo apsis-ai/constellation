@@ -163,6 +163,37 @@ func TestCLIProvider_OpenCodeDiscoveryUsesProviderQualifiedLabels(t *testing.T) 
 	}
 }
 
+func TestCLIProvider_ListModelsDeduplicatesAliasesAndDiscovery(t *testing.T) {
+	cfg := CLIProviderConfig{
+		ProviderID: "dedupe",
+		Name:       "Dedupe",
+		Binary:     fakeModelBinary(t, "alias\ndiscovered\n"),
+		ParserType: "other",
+		Models:     []string{"fallback"},
+		ModelDiscovery: &ModelDiscoveryConfig{
+			Command: []string{"models"},
+			Format:  "lines",
+			Aliases: []ModelInfo{{ID: "alias", Name: "Alias Label"}},
+		},
+	}
+	p := NewCLIProvider(cfg, NewParserRegistry())
+
+	models, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(models) != 2 {
+		t.Fatalf("expected 2 unique models, got %#v", models)
+	}
+	if models[0].ID != "alias" || models[0].Name != "Alias Label" {
+		t.Fatalf("expected alias entry to win duplicate, got %#v", models[0])
+	}
+	if models[1].ID != "discovered" {
+		t.Fatalf("expected discovered model, got %#v", models[1])
+	}
+}
+
 func TestCLIProvider_PiDiscoveryParsesTable(t *testing.T) {
 	cfg := BuiltinCLIConfigs()[3] // pi
 	cfg.Binary = fakeModelBinary(t, "Warning: No models match pattern \"openai-codex/gpt-5\"\nprovider      model                context  max-out  thinking  images\nopenai-codex  gpt-5.2              272K     128K     yes       yes\ngoogle         gemini-3-pro         1M       64K      no        yes\n")

@@ -38,6 +38,8 @@ type ProviderRequest struct {
 	MCPConfig        string
 	Env              []string
 	WorkingDirectory string
+	ConfigValues     map[string]any
+	RuntimeConfig    *ProviderRuntimeConfig
 }
 
 // ProviderResult is returned after execution completes.

@@ -131,7 +131,20 @@ func (p *CLIProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		result = append(result, staticModels(p.config.Models)...)
 	}
 
-	return result, nil
+	return dedupeModels(result), nil
+}
+
+func dedupeModels(models []ModelInfo) []ModelInfo {
+	seen := make(map[string]bool, len(models))
+	out := make([]ModelInfo, 0, len(models))
+	for _, model := range models {
+		if model.ID == "" || seen[model.ID] {
+			continue
+		}
+		seen[model.ID] = true
+		out = append(out, model)
+	}
+	return out
 }
 
 // staticModels converts a []string model list to []ModelInfo.
@@ -412,14 +425,18 @@ func (p *CLIProvider) BuildArgs(req ProviderRequest) []string {
 		args = append(args, "--mcp-config", mcpPath)
 	}
 
-	if req.Model != "" && p.config.ModelFlag != "" {
-		args = append(args, p.config.ModelFlag, req.Model)
-	}
-	if req.Effort != "" && p.config.EffortFlag != "" {
-		args = append(args, p.config.EffortFlag, req.Effort)
-	}
-	if req.SubAgent != "" && req.SubAgent != "default" && p.config.SubAgentFlag != "" {
-		args = append(args, p.config.SubAgentFlag, req.SubAgent)
+	if req.RuntimeConfig != nil && len(req.ConfigValues) > 0 {
+		args = append(args, buildMappedArgs(*req.RuntimeConfig, req.ConfigValues)...)
+	} else {
+		if req.Model != "" && p.config.ModelFlag != "" {
+			args = append(args, p.config.ModelFlag, req.Model)
+		}
+		if req.Effort != "" && p.config.EffortFlag != "" {
+			args = append(args, p.config.EffortFlag, req.Effort)
+		}
+		if req.SubAgent != "" && req.SubAgent != "default" && p.config.SubAgentFlag != "" {
+			args = append(args, p.config.SubAgentFlag, req.SubAgent)
+		}
 	}
 	if req.ConversationID != "" && p.config.ResumeFlag != "" {
 		args = append(args, p.config.ResumeFlag, req.ConversationID)
@@ -472,8 +489,34 @@ func (p *CLIProvider) BuildCommand(req ProviderRequest) (*exec.Cmd, error) {
 	} else {
 		cmd.Env = os.Environ()
 	}
+	if req.RuntimeConfig != nil && len(req.ConfigValues) > 0 {
+		cmd.Env = mergeEnv(cmd.Env, buildMappedEnv(*req.RuntimeConfig, req.ConfigValues))
+	}
 
 	return cmd, nil
+}
+
+func mergeEnv(env []string, mapped map[string]string) []string {
+	if len(mapped) == 0 {
+		return env
+	}
+	out := append([]string{}, env...)
+	indexByKey := map[string]int{}
+	for i, item := range out {
+		key, _, ok := strings.Cut(item, "=")
+		if ok {
+			indexByKey[key] = i
+		}
+	}
+	for key, value := range mapped {
+		entry := key + "=" + value
+		if idx, ok := indexByKey[key]; ok {
+			out[idx] = entry
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // GetParser returns the OutputParser for this provider.
