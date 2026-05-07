@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ type ProviderRegistry struct {
 	enabled   map[string]bool
 	parsers   *ParserRegistry
 	db        *sql.DB
+	store     ProviderFileStore
 }
 
 // NewProviderRegistry creates a registry backed by the given database.
@@ -26,6 +28,7 @@ func NewProviderRegistry(db *sql.DB, parsers *ParserRegistry) (*ProviderRegistry
 		enabled:   make(map[string]bool),
 		parsers:   parsers,
 		db:        db,
+		store:     NewProviderFileStore(""),
 	}
 	if err := r.initTable(); err != nil {
 		return nil, fmt.Errorf("init providers table: %w", err)
@@ -200,44 +203,49 @@ func (r *ProviderRegistry) SetEnabled(id string, enabled bool) error {
 	return nil
 }
 
-// RegisterBuiltins seeds the DB with default providers if not already present.
+// RegisterBuiltins seeds provider JSON files, then syncs file-derived configs into the DB/cache.
 func (r *ProviderRegistry) RegisterBuiltins() error {
-	for _, cfg := range BuiltinCLIConfigs() {
-		// Only insert if not already present (don't overwrite user customizations)
-		var count int
-		err := r.db.QueryRow(`SELECT COUNT(*) FROM providers WHERE id = ?`, cfg.ProviderID).Scan(&count)
-		if err != nil {
-			return err
+	ctx := context.Background()
+	seedConfigs := r.builtinSeedConfigs()
+	if err := r.store.SeedBuiltins(ctx, seedConfigs); err != nil {
+		return fmt.Errorf("seed provider files: %w", err)
+	}
+
+	files, validationErrs, err := r.store.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load provider files: %w", err)
+	}
+	if len(validationErrs) > 0 {
+		return fmt.Errorf("provider file validation failed: %s", validationErrs[0].Message)
+	}
+	for _, file := range files {
+		cfg := CLIProviderConfigFromProviderFile(file)
+		enabled := file.Enabled
+		if existingCfg, ok := r.configs[file.ID]; ok {
+			cfg = mergeBuiltinConfig(existingCfg, cfg)
 		}
-		if count == 0 {
-			if err := r.Register(cfg); err != nil {
-				return fmt.Errorf("register builtin %s: %w", cfg.ProviderID, err)
-			}
-		} else {
-			r.mu.RLock()
-			existingCfg, cfgLoaded := r.configs[cfg.ProviderID]
-			enabled, enabledLoaded := r.enabled[cfg.ProviderID]
-			r.mu.RUnlock()
-
-			if !cfgLoaded || !enabledLoaded {
-				if err := r.loadFromDB(); err != nil {
-					return err
-				}
-				r.mu.RLock()
-				existingCfg = r.configs[cfg.ProviderID]
-				enabled = r.enabled[cfg.ProviderID]
-				r.mu.RUnlock()
-			}
-
-			merged := mergeBuiltinConfig(existingCfg, cfg)
-			if !cliProviderConfigsEqual(existingCfg, merged) {
-				if err := r.upsertConfig(merged, enabled); err != nil {
-					return fmt.Errorf("sync builtin %s: %w", cfg.ProviderID, err)
-				}
-			}
+		if existingEnabled, ok := r.enabled[file.ID]; ok {
+			enabled = existingEnabled
+		}
+		if err := r.upsertConfig(cfg, enabled); err != nil {
+			return fmt.Errorf("sync provider file %s: %w", file.ID, err)
 		}
 	}
 	return nil
+}
+
+func (r *ProviderRegistry) builtinSeedConfigs() []CLIProviderConfig {
+	builtins := BuiltinCLIConfigs()
+	out := make([]CLIProviderConfig, 0, len(builtins))
+	for _, builtin := range builtins {
+		existing, ok := r.configs[builtin.ProviderID]
+		if ok {
+			out = append(out, mergeBuiltinConfig(existing, builtin))
+			continue
+		}
+		out = append(out, builtin)
+	}
+	return out
 }
 
 func mergeBuiltinConfig(existing, builtin CLIProviderConfig) CLIProviderConfig {
