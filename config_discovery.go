@@ -67,10 +67,7 @@ func (r ConfigDiscoveryResolver) discover(ctx context.Context, file ProviderFile
 	source := field.OptionsSource
 	switch source.Type {
 	case OptionSourceModelDiscovery:
-		cfg := CLIProviderConfig{ProviderID: file.ID, Name: file.Name, Binary: file.Binary, ParserType: file.ParserType, Models: file.Models, Efforts: file.Efforts, ModelDiscovery: file.Discovery}
-		if len(source.Command) > 0 || source.Format != "" {
-			cfg.ModelDiscovery = &ModelDiscoveryConfig{Command: source.Command, Format: source.Format}
-		}
+		cfg := CLIProviderConfig{ProviderID: file.ID, Name: file.Name, Binary: file.Binary, ParserType: file.ParserType, Models: file.Models, Efforts: file.Efforts, ModelDiscovery: mergedModelDiscovery(file.Discovery, source)}
 		models, err := NewCLIProvider(cfg, nil).ListModels(ctx)
 		if err != nil {
 			return nil, err
@@ -127,6 +124,20 @@ func (r ConfigDiscoveryResolver) write(key string, entry DiscoveryCacheEntry) er
 		return err
 	}
 	return os.WriteFile(filepath.Join(r.CacheDir, key), append(data, '\n'), 0o644)
+}
+
+func mergedModelDiscovery(base *ModelDiscoveryConfig, source *OptionsSource) *ModelDiscoveryConfig {
+	if base == nil {
+		base = &ModelDiscoveryConfig{}
+	}
+	merged := *base
+	if len(source.Command) > 0 {
+		merged.Command = source.Command
+	}
+	if source.Format != "" {
+		merged.Format = source.Format
+	}
+	return &merged
 }
 
 func firstNonEmpty(values ...string) string {

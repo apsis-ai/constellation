@@ -233,6 +233,21 @@ func TestCLIProvider_PiDiscoveryParsesTable(t *testing.T) {
 	}
 }
 
+func TestCLIProvider_PiDiscoveryReadsStderrTable(t *testing.T) {
+	cfg := BuiltinCLIConfigs()[3]
+	cfg.Binary = fakeModelBinaryToStderr(t, "Warning: No models match pattern \"openai-codex/gpt-5\"\nprovider      model                context  max-out  thinking  images\nopenai-codex  gpt-5.5              272K     128K     yes       yes\n")
+	p := NewCLIProvider(cfg, NewParserRegistry())
+
+	models, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := findModel(models, "openai-codex/gpt-5.5"); !ok {
+		t.Fatalf("expected stderr-discovered Pi model, got %#v", models)
+	}
+}
+
 func TestCLIProviderBuildCommandUsesWorkingDirectory(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "fake-cli")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho ok\n"), 0755); err != nil {

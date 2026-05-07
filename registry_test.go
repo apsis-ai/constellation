@@ -198,10 +198,22 @@ func findAgent(agents []AgentInfo, id string) (AgentInfo, bool) {
 func fakeModelBinary(t *testing.T, output string) string {
 	t.Helper()
 
+	return fakeModelBinaryWithRedirect(t, output, "")
+}
+
+func fakeModelBinaryToStderr(t *testing.T, output string) string {
+	t.Helper()
+
+	return fakeModelBinaryWithRedirect(t, output, " >&2")
+}
+
+func fakeModelBinaryWithRedirect(t *testing.T, output string, redirect string) string {
+	t.Helper()
+
 	path := filepath.Join(t.TempDir(), "models-cli")
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"models\" ] || [ \"$1\" = \"--list-models\" ]; then\n" +
-		"  cat <<'EOF'\n" +
+		"  cat" + redirect + " <<'EOF'\n" +
 		output +
 		"EOF\n" +
 		"  exit 0\n" +

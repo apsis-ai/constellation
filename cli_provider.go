@@ -182,7 +182,7 @@ func discoverModelsFromCLI(ctx context.Context, binary string, disc *ModelDiscov
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, binary, disc.Command...).Output()
+	out, err := exec.CommandContext(ctx, binary, disc.Command...).CombinedOutput()
 	if err != nil {
 		return nil, err
 	}
