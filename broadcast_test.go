@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -301,6 +302,36 @@ func TestSessionStreamEvent_FormatSSE(t *testing.T) {
 	}
 	if !contains(s, "event: chunk") {
 		t.Error("expected 'event: chunk' in SSE output")
+	}
+}
+
+func TestPublishUIBlockStartedFormatsStructuredEvent(t *testing.T) {
+	bc := NewSessionBroadcaster(8)
+	seq := bc.PublishUIBlockStarted("s1", UIBlockEvent{
+		ProtocolVersion: "perigee.ui-events.v1",
+		MessageID:       "m1",
+		BlockID:         "b1",
+		Kind:            "card",
+		Schema:          "choice",
+		SchemaVersion:   1,
+		Payload: UIBlockPayload{
+			"title":   "Pick",
+			"options": []interface{}{map[string]interface{}{"id": "a", "label": "A"}},
+		},
+	})
+
+	replay, ok := bc.RingEventsAfter("s1", 0)
+	if !ok || len(replay) != 1 {
+		t.Fatalf("expected one replay event, ok=%v len=%d", ok, len(replay))
+	}
+	if seq != 1 {
+		t.Fatalf("seq = %d, want 1", seq)
+	}
+	formatted := replay[0].FormatSSE()
+	for _, want := range []string{"event: ui_block_started", "\"protocol_version\":\"perigee.ui-events.v1\"", "\"schema\":\"choice\"", "\"block_id\":\"b1\""} {
+		if !strings.Contains(formatted, want) {
+			t.Fatalf("formatted SSE missing %q: %s", want, formatted)
+		}
 	}
 }
 

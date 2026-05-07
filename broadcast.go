@@ -12,14 +12,19 @@ import (
 type SessionStreamEventType string
 
 const (
-	SSEMessage   SessionStreamEventType = "message"
-	SSEChunk     SessionStreamEventType = "chunk"
-	SSEAck       SessionStreamEventType = "ack"
-	SSEAction    SessionStreamEventType = "action"
-	SSEDone      SessionStreamEventType = "done"
-	SSEError     SessionStreamEventType = "error"
-	SSEStatus    SessionStreamEventType = "status"
-	SSEFlushDone SessionStreamEventType = "flush_done"
+	SSEMessage          SessionStreamEventType = "message"
+	SSEChunk            SessionStreamEventType = "chunk"
+	SSEAck              SessionStreamEventType = "ack"
+	SSEAction           SessionStreamEventType = "action"
+	SSEDone             SessionStreamEventType = "done"
+	SSEError            SessionStreamEventType = "error"
+	SSEStatus           SessionStreamEventType = "status"
+	SSEFlushDone        SessionStreamEventType = "flush_done"
+	SSEUIBlockStarted   SessionStreamEventType = "ui_block_started"
+	SSEUIBlockDelta     SessionStreamEventType = "ui_block_delta"
+	SSEUIBlockCompleted SessionStreamEventType = "ui_block_completed"
+	SSEUIBlockFailed    SessionStreamEventType = "ui_block_failed"
+	SSEUIResponse       SessionStreamEventType = "ui_response"
 )
 
 // SessionStreamEvent is a sequenced event on a per-session SSE stream.
@@ -28,6 +33,30 @@ type SessionStreamEvent struct {
 	Event     SessionStreamEventType `json:"event"`
 	SessionID string                 `json:"session_id,omitempty"`
 	Data      map[string]interface{} `json:"data"`
+}
+
+type UIBlockPayload map[string]interface{}
+
+type UIBlockEvent struct {
+	ProtocolVersion string         `json:"protocol_version"`
+	MessageID       string         `json:"message_id"`
+	BlockID         string         `json:"block_id"`
+	Kind            string         `json:"kind"`
+	Schema          string         `json:"schema"`
+	SchemaVersion   int            `json:"schema_version"`
+	Payload         UIBlockPayload `json:"payload"`
+}
+
+func (e UIBlockEvent) Data() map[string]interface{} {
+	return map[string]interface{}{
+		"protocol_version": e.ProtocolVersion,
+		"message_id":       e.MessageID,
+		"block_id":         e.BlockID,
+		"kind":             e.Kind,
+		"schema":           e.Schema,
+		"schema_version":   e.SchemaVersion,
+		"payload":          map[string]interface{}(e.Payload),
+	}
 }
 
 // FormatSSE returns the event as SSE text with id: field for reconnection.
@@ -330,6 +359,35 @@ func (b *SessionBroadcaster) PublishAction(sessionID, messageID string, actionDa
 		data[k] = v
 	}
 	return b.PublishSessionEvent(sessionID, SSEAction, data)
+}
+
+func (b *SessionBroadcaster) PublishUIBlockStarted(sessionID string, block UIBlockEvent) uint64 {
+	return b.PublishSessionEvent(sessionID, SSEUIBlockStarted, block.Data())
+}
+
+func (b *SessionBroadcaster) PublishUIBlockDelta(sessionID string, block UIBlockEvent) uint64 {
+	return b.PublishSessionEvent(sessionID, SSEUIBlockDelta, block.Data())
+}
+
+func (b *SessionBroadcaster) PublishUIBlockCompleted(sessionID string, block UIBlockEvent) uint64 {
+	return b.PublishSessionEvent(sessionID, SSEUIBlockCompleted, block.Data())
+}
+
+func (b *SessionBroadcaster) PublishUIBlockFailed(sessionID string, block UIBlockEvent) uint64 {
+	return b.PublishSessionEvent(sessionID, SSEUIBlockFailed, block.Data())
+}
+
+func (b *SessionBroadcaster) PublishUIResponse(sessionID, messageID, blockID, actionID string, values map[string]interface{}) uint64 {
+	data := map[string]interface{}{
+		"session_id": sessionID,
+		"message_id": messageID,
+		"block_id":   blockID,
+		"action_id":  actionID,
+	}
+	if values != nil {
+		data["values"] = values
+	}
+	return b.PublishSessionEvent(sessionID, SSEUIResponse, data)
 }
 
 // PublishDone publishes a done event to a session.
