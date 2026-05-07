@@ -180,7 +180,7 @@ func TestSendBackfillsWorkingDirectoryForLegacySession(t *testing.T) {
 	}
 }
 
-func TestSetWorkingDirectoryRejectsBusySession(t *testing.T) {
+func TestSetWorkingDirectoryAllowsBusySession(t *testing.T) {
 	home := tempHome(t)
 	project := tempDir(t)
 	fs := fakeFSWithDirs(project)
@@ -193,10 +193,13 @@ func TestSetWorkingDirectoryRejectsBusySession(t *testing.T) {
 	m.activeProcesses["busy"] = &processEntry{Pid: 1234}
 	m.mu.Unlock()
 
-	_, err := m.SetWorkingDirectory("busy", project)
+	session, err := m.SetWorkingDirectory("busy", project)
 
-	if !errors.Is(err, ErrWorkingDirectorySessionBusy) {
-		t.Fatalf("err = %v", err)
+	if err != nil {
+		t.Fatalf("SetWorkingDirectory returned error: %v", err)
+	}
+	if session.WorkingDirectory != project {
+		t.Fatalf("working directory = %q, want %q", session.WorkingDirectory, project)
 	}
 }
 

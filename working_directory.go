@@ -149,17 +149,13 @@ func (m *Manager) GetWorkingDirectory(sessionID string) (string, error) {
 }
 
 func (m *Manager) SetWorkingDirectory(sessionID, path string) (Session, error) {
-	var status SessionStatus
 	var current string
-	err := m.db.QueryRow(`SELECT status, COALESCE(working_directory, '') FROM sessions WHERE id = ?`, sessionID).Scan(&status, &current)
+	err := m.db.QueryRow(`SELECT COALESCE(working_directory, '') FROM sessions WHERE id = ?`, sessionID).Scan(&current)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrWorkingDirectorySessionNotFound
 	}
 	if err != nil {
 		return Session{}, err
-	}
-	if m.isSessionBusy(sessionID, status) {
-		return Session{}, ErrWorkingDirectorySessionBusy
 	}
 	canonical, err := m.validateWorkingDirectory(context.Background(), path, current)
 	if err != nil {
