@@ -169,11 +169,18 @@ func buildMappedArgs(provider ProviderRuntimeConfig, values ConfigValues) []stri
 				continue
 			}
 			for _, rendered := range renderMappedValues(field, value) {
+				if field.Mapping.Mode != "" {
+					rendered = field.Mapping.Mode + "=" + quoteConfigValue(rendered)
+				}
 				args = append(args, field.Mapping.Name, rendered)
 			}
 		}
 	}
 	return args
+}
+
+func quoteConfigValue(value string) string {
+	return strconv.Quote(value)
 }
 
 func buildMappedEnv(provider ProviderRuntimeConfig, values ConfigValues) map[string]string {

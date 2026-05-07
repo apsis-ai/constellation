@@ -80,16 +80,17 @@ type ConfigSection struct {
 }
 
 type ProviderExecutionConfig struct {
-	BaseArgs       []string          `json:"base_args,omitempty"`
-	ResumeFlag     string            `json:"resume_flag,omitempty"`
-	ModelFlag      string            `json:"model_flag,omitempty"`
-	EffortFlag     string            `json:"effort_flag,omitempty"`
-	SubAgentFlag   string            `json:"subagent_flag,omitempty"`
-	MCPMode        string            `json:"mcp_mode,omitempty"`
-	DefaultModelID string            `json:"default_model,omitempty"`
-	AttachmentMode string            `json:"attachment_mode,omitempty"`
-	AttachmentFlag string            `json:"attachment_flag,omitempty"`
-	EnvVars        map[string]string `json:"env_vars,omitempty"`
+	BaseArgs        []string          `json:"base_args,omitempty"`
+	ResumeFlag      string            `json:"resume_flag,omitempty"`
+	ModelFlag       string            `json:"model_flag,omitempty"`
+	EffortFlag      string            `json:"effort_flag,omitempty"`
+	SubAgentFlag    string            `json:"subagent_flag,omitempty"`
+	MCPMode         string            `json:"mcp_mode,omitempty"`
+	PromptSeparator *string           `json:"prompt_separator,omitempty"`
+	DefaultModelID  string            `json:"default_model,omitempty"`
+	AttachmentMode  string            `json:"attachment_mode,omitempty"`
+	AttachmentFlag  string            `json:"attachment_flag,omitempty"`
+	EnvVars         map[string]string `json:"env_vars,omitempty"`
 }
 
 type ProviderFileConfig struct {

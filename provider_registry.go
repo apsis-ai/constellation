@@ -284,6 +284,9 @@ func mergeBuiltinConfig(existing, builtin CLIProviderConfig) CLIProviderConfig {
 	if merged.MCPMode == "" {
 		merged.MCPMode = builtin.MCPMode
 	}
+	if merged.PromptSeparator == nil {
+		merged.PromptSeparator = builtin.PromptSeparator
+	}
 	if len(merged.EnvVars) == 0 && len(builtin.EnvVars) > 0 {
 		merged.EnvVars = cloneStringMap(builtin.EnvVars)
 	}

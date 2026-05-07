@@ -48,6 +48,40 @@ func TestConfigDiscoveryResolverKeepsProviderDiscoveryCachePath(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigServiceDerivesCodexEffortsFromDiscoveredModels(t *testing.T) {
+	// Arrange
+	store := NewProviderFileStore(t.TempDir())
+	codex := ProviderFileConfigFromCLI(BuiltinCLIConfigs()[1])
+	codex.Discovery = &ModelDiscoveryConfig{CachePath: writeCodexModelCacheWithEfforts(t, "gpt-5.4", []string{"low", "medium", "high", "xhigh"}), Format: "codex-cache"}
+	data, err := json.Marshal(codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "codex.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := NewRuntimeConfigService(store)
+	service.Resolver = NewConfigDiscoveryResolver(t.TempDir(), time.Minute)
+
+	// Act
+	runtime, errs, err := service.List(context.Background())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("unexpected validation errors: %#v", errs)
+	}
+	effortField := runtimeField(runtime, "codex", "effort")
+	if effortField == nil {
+		t.Fatal("expected effort field")
+	}
+	if !hasOption(effortField.Options, "xhigh") {
+		t.Fatalf("expected xhigh effort from codex model cache, got %#v", effortField.Options)
+	}
+}
+
 func TestConfigDiscoveryResolverIgnoresPreFixCacheKey(t *testing.T) {
 	cacheDir := t.TempDir()
 	oldCache := DiscoveryCacheEntry{FetchedAt: time.Now().UTC(), Options: []ConfigOption{{Value: "gpt-5.4", Label: "gpt-5.4"}}}
@@ -72,10 +106,50 @@ func TestConfigDiscoveryResolverIgnoresPreFixCacheKey(t *testing.T) {
 func writeCodexModelCache(t *testing.T, model string) string {
 	t.Helper()
 
+	return writeCodexModelCacheWithEfforts(t, model, nil)
+}
+
+func writeCodexModelCacheWithEfforts(t *testing.T, model string, efforts []string) string {
+	t.Helper()
+
 	cachePath := filepath.Join(t.TempDir(), "models_cache.json")
-	cache := `{"models":[{"slug":"` + model + `","display_name":"` + model + `","visibility":"list"}]}`
-	if err := os.WriteFile(cachePath, []byte(cache), 0o644); err != nil {
+	reasoningLevels := make([]map[string]string, 0, len(efforts))
+	for _, effort := range efforts {
+		reasoningLevels = append(reasoningLevels, map[string]string{"effort": effort})
+	}
+	cacheData := map[string]any{"models": []map[string]any{{"slug": model, "display_name": model, "visibility": "list", "supported_reasoning_levels": reasoningLevels}}}
+	data, err := json.Marshal(cacheData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return cachePath
+}
+
+func runtimeField(providers []ProviderRuntimeConfig, providerID string, fieldKey string) *ConfigField {
+	for pi := range providers {
+		if providers[pi].ID != providerID {
+			continue
+		}
+		for si := range providers[pi].Sections {
+			for fi := range providers[pi].Sections[si].Fields {
+				field := &providers[pi].Sections[si].Fields[fi]
+				if field.Key == fieldKey {
+					return field
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func hasOption(options []ConfigOption, value string) bool {
+	for _, option := range options {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
 }

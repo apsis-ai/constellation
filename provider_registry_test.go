@@ -163,6 +163,18 @@ func TestProviderRegistry_Persistence(t *testing.T) {
 	}
 }
 
+func TestMergeBuiltinConfigBackfillsPromptSeparator(t *testing.T) {
+	noPromptSeparator := ""
+	merged := mergeBuiltinConfig(CLIProviderConfig{ProviderID: "pi"}, CLIProviderConfig{ProviderID: "pi", PromptSeparator: &noPromptSeparator})
+
+	if merged.PromptSeparator == nil {
+		t.Fatal("expected prompt separator to be backfilled")
+	}
+	if *merged.PromptSeparator != "" {
+		t.Fatalf("expected empty prompt separator for pi, got %q", *merged.PromptSeparator)
+	}
+}
+
 func TestProviderRegistry_RegisterBuiltins_BackfillsLegacyBuiltinConfig(t *testing.T) {
 	cfg := tempConfig(t)
 	m, err := NewManager(cfg)

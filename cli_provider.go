@@ -66,7 +66,9 @@ type CLIProviderConfig struct {
 	SubAgentFlag   string            `json:"subagent_flag,omitempty"`
 	MCPMode        string            `json:"mcp_mode,omitempty"` // "flag", "workspace", or ""
 	EnvVars        map[string]string `json:"env_vars,omitempty"`
-	DefaultModelID string            `json:"default_model,omitempty"`
+	// PromptSeparator is inserted before the prompt. nil defaults to "--"; empty string disables it.
+	PromptSeparator *string `json:"prompt_separator,omitempty"`
+	DefaultModelID  string  `json:"default_model,omitempty"`
 	// AttachmentMode: "prompt" (prefix to prompt) or "flag" (--file per attachment)
 	AttachmentMode string   `json:"attachment_mode,omitempty"`
 	AttachmentFlag string   `json:"attachment_flag,omitempty"`
@@ -442,8 +444,25 @@ func (p *CLIProvider) BuildArgs(req ProviderRequest) []string {
 		prompt = buildAttachmentPrompt(prompt, req.Attachments)
 	}
 
-	args = append(args, "--", prompt)
+	if sep := p.promptSeparator(); sep != "" {
+		args = append(args, sep)
+	}
+	args = append(args, prompt)
 	return args
+}
+
+func (p *CLIProvider) promptSeparator() string {
+	if p.config.PromptSeparator == nil {
+		return "--"
+	}
+	return *p.config.PromptSeparator
+}
+
+func (p *CLIProvider) promptArgCount() int {
+	if p.promptSeparator() == "" {
+		return 1
+	}
+	return 2
 }
 
 // BuildCommand constructs an exec.Cmd for the given request.
@@ -458,7 +477,11 @@ func (p *CLIProvider) BuildCommand(req ProviderRequest) (*exec.Cmd, error) {
 	// For workspace-based providers (Cursor), dynamically add --workspace and set up MCP
 	if p.config.MCPMode == "workspace" {
 		cursorWorkspace := filepath.Join(os.TempDir(), "agents-mux-cursor")
-		args = append([]string{args[0]}, append(args[1:len(args)-2], "--workspace", cursorWorkspace, args[len(args)-2], args[len(args)-1])...)
+		promptArgStart := len(args) - p.promptArgCount()
+		withWorkspace := append([]string{}, args[:promptArgStart]...)
+		withWorkspace = append(withWorkspace, "--workspace", cursorWorkspace)
+		withWorkspace = append(withWorkspace, args[promptArgStart:]...)
+		args = withWorkspace
 		cursorDir := filepath.Join(cursorWorkspace, ".cursor")
 		os.MkdirAll(cursorDir, 0755)
 		if req.MCPConfig != "" {
@@ -520,6 +543,7 @@ func (p *CLIProvider) GetParser(cb ParserCallbacks) (OutputParser, error) {
 
 // BuiltinCLIConfigs returns the default configs for built-in providers.
 func BuiltinCLIConfigs() []CLIProviderConfig {
+	noPromptSeparator := ""
 	return []CLIProviderConfig{
 		{
 			ProviderID:     "claude",
@@ -559,9 +583,11 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			ParserType:     "codex",
 			SupportsResume: false,
 			ModelFlag:      "-m",
+			EffortFlag:     "-c",
 			DefaultModelID: "gpt-5.4",
 			AttachmentMode: "prompt",
 			Models:         []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"},
+			Efforts:        []string{"minimal", "low", "medium", "high", "xhigh"},
 			ModelDiscovery: &ModelDiscoveryConfig{
 				CachePath: "~/.codex/models_cache.json",
 				Format:    "codex-cache",
@@ -588,19 +614,20 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			},
 		},
 		{
-			ProviderID:     "pi",
-			Name:           "Pi",
-			Binary:         "pi",
-			BaseArgs:       []string{"--mode", "json"},
-			ParserType:     "pi",
-			SupportsResume: true,
-			ResumeFlag:     "--session",
-			ModelFlag:      "--model",
-			EffortFlag:     "--thinking",
-			DefaultModelID: "anthropic/claude-sonnet-4-5",
-			AttachmentMode: "prompt",
-			Models:         []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5.2", "google/gemini-3-pro"},
-			Efforts:        []string{"off", "minimal", "low", "medium", "high", "xhigh"},
+			ProviderID:      "pi",
+			Name:            "Pi",
+			Binary:          "pi",
+			BaseArgs:        []string{"--mode", "json"},
+			PromptSeparator: &noPromptSeparator,
+			ParserType:      "pi",
+			SupportsResume:  true,
+			ResumeFlag:      "--session",
+			ModelFlag:       "--model",
+			EffortFlag:      "--thinking",
+			DefaultModelID:  "anthropic/claude-sonnet-4-5",
+			AttachmentMode:  "prompt",
+			Models:          []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5.2", "google/gemini-3-pro"},
+			Efforts:         []string{"off", "minimal", "low", "medium", "high", "xhigh"},
 			ModelDiscovery: &ModelDiscoveryConfig{
 				Command: []string{"--list-models"},
 				Format:  "pi-table",

@@ -47,11 +47,11 @@ func TestCLIProvider_BuildArgs_Codex(t *testing.T) {
 	cfg := BuiltinCLIConfigs()[1] // codex
 	p := NewCLIProvider(cfg, parsers)
 
-	runtimeConfig := ProviderRuntimeConfig{Sections: []ConfigSection{{Fields: []ConfigField{{Key: "model", Mapping: &ExecutionMapping{Kind: "arg", Name: "-m"}}}}}}
+	runtimeConfig := ProviderRuntimeConfig{Sections: []ConfigSection{{Fields: []ConfigField{{Key: "model", Mapping: &ExecutionMapping{Kind: "arg", Name: "-m"}}}}, {Fields: []ConfigField{{Key: "effort", Mapping: &ExecutionMapping{Kind: "arg", Name: "-c", Mode: "model_reasoning_effort"}}}}}}
 	req := ProviderRequest{
 		Prompt:        "fix the bug",
 		RuntimeConfig: &runtimeConfig,
-		ConfigValues:  map[string]any{"model": "o4-mini"},
+		ConfigValues:  map[string]any{"model": "o4-mini", "effort": "high"},
 	}
 
 	args := p.BuildArgs(req)
@@ -62,6 +62,12 @@ func TestCLIProvider_BuildArgs_Codex(t *testing.T) {
 	}
 	if !strings.Contains(joined, "-m o4-mini") {
 		t.Errorf("expected -m o4-mini, got: %s", joined)
+	}
+	if !strings.Contains(joined, "-c model_reasoning_effort=\"high\"") {
+		t.Errorf("expected Codex effort config override, got: %s", joined)
+	}
+	if strings.Contains(joined, "--effort") {
+		t.Errorf("codex should not receive unsupported --effort flag, got: %s", joined)
 	}
 	// Codex should NOT have --resume since it doesn't support it
 	if strings.Contains(joined, "--resume") {
@@ -118,6 +124,14 @@ func TestCLIProvider_BuildArgs_Pi(t *testing.T) {
 	}
 	if !strings.Contains(joined, "--session pi-session-123") {
 		t.Errorf("expected --session pi-session-123, got: %s", joined)
+	}
+	for _, arg := range args {
+		if arg == "--" {
+			t.Fatalf("expected Pi args to omit prompt separator unsupported by pi CLI, got: %#v", args)
+		}
+	}
+	if args[len(args)-1] != "write docs" {
+		t.Fatalf("expected prompt to be final arg, got: %#v", args)
 	}
 }
 

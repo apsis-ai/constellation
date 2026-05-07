@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const discoveryCacheVersion = "v2"
+const discoveryCacheVersion = "v3"
 
 type DiscoveryCacheEntry struct {
 	FetchedAt time.Time      `json:"fetched_at"`

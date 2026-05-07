@@ -29,12 +29,26 @@ func TestBuildMappedArgsUsesFieldMappings(t *testing.T) {
 	args := buildMappedArgs(provider, ConfigValues{"model": "openai/gpt-5", "effort": "high"})
 
 	want := []string{"--model", "openai/gpt-5", "--thinking", "high"}
-	if len(args) != len(want) {
-		t.Fatalf("expected %#v, got %#v", want, args)
+	assertStringSliceEqual(t, args, want)
+}
+
+func TestBuildMappedArgsSupportsConfigOverrideMappings(t *testing.T) {
+	provider := ProviderRuntimeConfig{Sections: []ConfigSection{{ID: "effort", Fields: []ConfigField{{Key: "effort", Type: FieldTypeSelect, Mapping: &ExecutionMapping{Kind: "arg", Name: "-c", Mode: "model_reasoning_effort"}}}}}}
+
+	args := buildMappedArgs(provider, ConfigValues{"effort": "high"})
+
+	want := []string{"-c", "model_reasoning_effort=\"high\""}
+	assertStringSliceEqual(t, args, want)
+}
+
+func assertStringSliceEqual(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %#v, got %#v", want, got)
 	}
 	for i := range want {
-		if args[i] != want[i] {
-			t.Fatalf("expected %#v, got %#v", want, args)
+		if got[i] != want[i] {
+			t.Fatalf("expected %#v, got %#v", want, got)
 		}
 	}
 }
