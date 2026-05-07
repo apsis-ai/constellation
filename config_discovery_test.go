@@ -2,6 +2,7 @@ package mux
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,11 +24,7 @@ func TestConfigDiscoveryResolverUsesFallbackWhenDiscoveryFails(t *testing.T) {
 }
 
 func TestConfigDiscoveryResolverKeepsProviderDiscoveryCachePath(t *testing.T) {
-	cachePath := filepath.Join(t.TempDir(), "models_cache.json")
-	cache := `{"models":[{"slug":"gpt-5.5","display_name":"GPT 5.5","visibility":"list"}]}`
-	if err := os.WriteFile(cachePath, []byte(cache), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	cachePath := writeCodexModelCache(t, "gpt-5.5")
 	resolver := NewConfigDiscoveryResolver(t.TempDir(), time.Minute)
 	file := ProviderFileConfig{
 		ID:         "codex",
@@ -49,4 +46,36 @@ func TestConfigDiscoveryResolverKeepsProviderDiscoveryCachePath(t *testing.T) {
 	if len(options) != 1 || options[0].Value != "gpt-5.5" {
 		t.Fatalf("expected codex cache model, got %#v", options)
 	}
+}
+
+func TestConfigDiscoveryResolverIgnoresPreFixCacheKey(t *testing.T) {
+	cacheDir := t.TempDir()
+	oldCache := DiscoveryCacheEntry{FetchedAt: time.Now().UTC(), Options: []ConfigOption{{Value: "gpt-5.4", Label: "gpt-5.4"}}}
+	data, err := json.Marshal(oldCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "codex-model.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewConfigDiscoveryResolver(cacheDir, time.Minute)
+	field := ConfigField{Key: "model", OptionsSource: &OptionsSource{Type: OptionSourceModelDiscovery, Format: "codex-cache"}}
+	file := ProviderFileConfig{ID: "codex", Binary: "codex", ParserType: "codex", Discovery: &ModelDiscoveryConfig{CachePath: writeCodexModelCache(t, "gpt-5.5"), Format: "codex-cache"}}
+
+	options, _ := resolver.Resolve(context.Background(), file, field, false)
+
+	if len(options) != 1 || options[0].Value != "gpt-5.5" {
+		t.Fatalf("expected old cache key ignored, got %#v", options)
+	}
+}
+
+func writeCodexModelCache(t *testing.T, model string) string {
+	t.Helper()
+
+	cachePath := filepath.Join(t.TempDir(), "models_cache.json")
+	cache := `{"models":[{"slug":"` + model + `","display_name":"` + model + `","visibility":"list"}]}`
+	if err := os.WriteFile(cachePath, []byte(cache), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cachePath
 }

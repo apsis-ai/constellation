@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const discoveryCacheVersion = "v2"
+
 type DiscoveryCacheEntry struct {
 	FetchedAt time.Time      `json:"fetched_at"`
 	Options   []ConfigOption `json:"options"`
@@ -43,7 +45,7 @@ func (r ConfigDiscoveryResolver) Resolve(ctx context.Context, file ProviderFileC
 	if field.OptionsSource == nil {
 		return field.Options, ""
 	}
-	key := file.ID + "-" + field.Key + ".json"
+	key := file.ID + "-" + field.Key + "-" + discoveryCacheVersion + ".json"
 	if !force {
 		if entry, ok := r.readFresh(key); ok {
 			return entry.Options, ""
