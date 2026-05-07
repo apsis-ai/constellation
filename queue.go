@@ -166,9 +166,36 @@ func (m *Manager) ListQueueAll(sessionID string) ([]QueueItem, error) {
 	return items, nil
 }
 
-// UpdateQueueItem updates a queued item's text. Returns error if item not found.
-func (m *Manager) UpdateQueueItem(sessionID, itemID string, text string) (*QueueItem, error) {
-	res, err := m.db.Exec(`UPDATE follow_up_queue SET text = ? WHERE id = ? AND session_id = ? AND status = 'pending'`, text, itemID, sessionID)
+// UpdateQueueItem updates fields of a pending queue item. Only non-nil fields in
+// update are applied. Returns error if item not found or already processed.
+func (m *Manager) UpdateQueueItem(sessionID, itemID string, update QueueItemUpdate) (*QueueItem, error) {
+	if update.Text == nil && update.WorkingDirectory == nil {
+		return nil, fmt.Errorf("queue update must set text or working_directory")
+	}
+
+	sets := make([]string, 0, 2)
+	args := make([]any, 0, 4)
+
+	if update.Text != nil {
+		sets = append(sets, "text = ?")
+		args = append(args, *update.Text)
+	}
+	if update.WorkingDirectory != nil {
+		base, err := m.ensureSessionWorkingDirectory(context.Background(), m.db, sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("working directory: %w", err)
+		}
+		resolved, err := m.validateWorkingDirectory(context.Background(), *update.WorkingDirectory, base)
+		if err != nil {
+			return nil, fmt.Errorf("working directory: %w", err)
+		}
+		sets = append(sets, "working_directory = ?")
+		args = append(args, resolved)
+	}
+
+	args = append(args, itemID, sessionID)
+	query := fmt.Sprintf(`UPDATE follow_up_queue SET %s WHERE id = ? AND session_id = ? AND status = 'pending'`, strings.Join(sets, ", "))
+	res, err := m.db.Exec(query, args...)
 	if err != nil {
 		return nil, err
 	}

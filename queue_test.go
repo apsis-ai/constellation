@@ -207,7 +207,8 @@ func TestUpdateQueueItem(t *testing.T) {
 	m.CreateSession("q9")
 
 	item, _ := m.AddToQueue(QueueAddRequest{SessionID: "q9", Text: "original"})
-	updated, err := m.UpdateQueueItem("q9", item.ID, "modified")
+	modified := "modified"
+	updated, err := m.UpdateQueueItem("q9", item.ID, QueueItemUpdate{Text: &modified})
 	if err != nil {
 		t.Fatalf("UpdateQueueItem: %v", err)
 	}
@@ -225,9 +226,120 @@ func TestUpdateQueueItem_NotFound(t *testing.T) {
 	defer m.Close()
 	m.CreateSession("q10")
 
-	_, err = m.UpdateQueueItem("q10", "nonexistent", "text")
+	text := "text"
+	_, err = m.UpdateQueueItem("q10", "nonexistent", QueueItemUpdate{Text: &text})
 	if err == nil {
 		t.Fatal("expected error for nonexistent item")
+	}
+}
+
+func TestUpdateQueueItemWorkingDirectory(t *testing.T) {
+	first := tempDir(t)
+	second := tempDir(t)
+	fs := fakeFSWithDirs(first, second)
+	fs.home = first
+	m := newTestManagerWithFilesystem(t, fs)
+
+	if err := m.CreateSession("cwd-update"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetWorkingDirectory("cwd-update", first); err != nil {
+		t.Fatal(err)
+	}
+	item, err := m.AddToQueue(QueueAddRequest{SessionID: "cwd-update", Text: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.WorkingDirectory != first {
+		t.Fatalf("captured cwd = %q, want %q", item.WorkingDirectory, first)
+	}
+
+	updated, err := m.UpdateQueueItem("cwd-update", item.ID, QueueItemUpdate{WorkingDirectory: &second})
+	if err != nil {
+		t.Fatalf("UpdateQueueItem cwd: %v", err)
+	}
+	if updated.WorkingDirectory != second {
+		t.Errorf("returned WorkingDirectory = %q, want %q", updated.WorkingDirectory, second)
+	}
+	if updated.Text != "queued" {
+		t.Errorf("Text changed unexpectedly = %q, want %q", updated.Text, "queued")
+	}
+
+	items, err := m.ListQueue("cwd-update")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].WorkingDirectory != second {
+		t.Errorf("listed WorkingDirectory = %q, want %q", items[0].WorkingDirectory, second)
+	}
+}
+
+func TestUpdateQueueItemTextOnlyKeepsCwd(t *testing.T) {
+	first := tempDir(t)
+	fs := fakeFSWithDirs(first)
+	fs.home = first
+	m := newTestManagerWithFilesystem(t, fs)
+
+	if err := m.CreateSession("cwd-text-only"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetWorkingDirectory("cwd-text-only", first); err != nil {
+		t.Fatal(err)
+	}
+	item, err := m.AddToQueue(QueueAddRequest{SessionID: "cwd-text-only", Text: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newText := "rewritten"
+	updated, err := m.UpdateQueueItem("cwd-text-only", item.ID, QueueItemUpdate{Text: &newText})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Text != "rewritten" {
+		t.Errorf("Text = %q, want %q", updated.Text, "rewritten")
+	}
+	if updated.WorkingDirectory != first {
+		t.Errorf("WorkingDirectory = %q, want %q (cwd should be unchanged when only text is patched)", updated.WorkingDirectory, first)
+	}
+}
+
+func TestUpdateQueueItemRejectsCwdForNonPendingItem(t *testing.T) {
+	first := tempDir(t)
+	second := tempDir(t)
+	fs := fakeFSWithDirs(first, second)
+	fs.home = first
+	m := newTestManagerWithFilesystem(t, fs)
+
+	if err := m.CreateSession("cwd-non-pending"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetWorkingDirectory("cwd-non-pending", first); err != nil {
+		t.Fatal(err)
+	}
+	item, err := m.AddToQueue(QueueAddRequest{SessionID: "cwd-non-pending", Text: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m.db.Exec(`UPDATE follow_up_queue SET status = 'completed' WHERE id = ?`, item.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = m.UpdateQueueItem("cwd-non-pending", item.ID, QueueItemUpdate{WorkingDirectory: &second})
+	if err == nil {
+		t.Fatal("expected error when updating non-pending queue item")
+	}
+
+	var stored string
+	if err := m.db.QueryRow(`SELECT COALESCE(working_directory, '') FROM follow_up_queue WHERE id = ?`, item.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != first {
+		t.Errorf("stored WorkingDirectory = %q, want %q (cwd must not change for non-pending rows)", stored, first)
 	}
 }
 

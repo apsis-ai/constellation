@@ -164,6 +164,13 @@ type QueueAddRequest struct {
 	ResponseID       string
 }
 
+// QueueItemUpdate carries optional fields for updating a pending queue item.
+// Only non-nil fields are applied so callers can change text alone, cwd alone, or both.
+type QueueItemUpdate struct {
+	Text             *string
+	WorkingDirectory *string
+}
+
 // SendRequest contains all parameters for sending a prompt.
 type SendRequest struct {
 	Prompt           string
