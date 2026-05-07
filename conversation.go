@@ -9,6 +9,21 @@ import (
 )
 
 // appendConversation appends a ConversationEntry to the session's conversation.jsonl.
+func (m *Manager) AppendUIBlock(sessionID string, block UIBlockEvent, eventType SessionStreamEventType) {
+	m.appendConversation(sessionID, ConversationEntry{
+		ID:            block.MessageID,
+		Role:          "ui_block",
+		Content:       "",
+		BlockID:       block.BlockID,
+		EventType:     string(eventType),
+		Kind:          block.Kind,
+		Schema:        block.Schema,
+		SchemaVersion: block.SchemaVersion,
+		Payload:       map[string]interface{}(block.Payload),
+		DisplayAs:     "info",
+	})
+}
+
 func (m *Manager) appendConversation(sessionID string, entry ConversationEntry) {
 	if entry.Timestamp == "" {
 		entry.Timestamp = nowRFC3339()
@@ -83,6 +98,24 @@ func (m *Manager) readConversation(sessionID string) ([]ConversationEntry, error
 		}
 		if v, ok := raw["display_as"].(string); ok {
 			entry.DisplayAs = v
+		}
+		if v, ok := raw["block_id"].(string); ok {
+			entry.BlockID = v
+		}
+		if v, ok := raw["event_type"].(string); ok {
+			entry.EventType = v
+		}
+		if v, ok := raw["kind"].(string); ok {
+			entry.Kind = v
+		}
+		if v, ok := raw["schema"].(string); ok {
+			entry.Schema = v
+		}
+		if v, ok := raw["schema_version"].(float64); ok {
+			entry.SchemaVersion = int(v)
+		}
+		if v, ok := raw["payload"].(map[string]interface{}); ok {
+			entry.Payload = v
 		}
 		entries = append(entries, entry)
 	}

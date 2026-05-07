@@ -414,6 +414,13 @@ func processQueueItem(m *Manager, sessionID string) {
 					"type": "ask_user", "data": askData,
 				})
 			}
+		case ChanUIBlock:
+			var block UIBlockEvent
+			if err := json.Unmarshal([]byte(evt.JSON), &block); err == nil {
+				bc.PublishUIBlockStarted(sessionID, block)
+				bc.PublishUIBlockCompleted(sessionID, block)
+				m.AppendUIBlock(sessionID, block, SSEUIBlockCompleted)
+			}
 		case ChanText:
 			bc.PublishChunk(sessionID, result.ResponseMessageID, evt.Text)
 		}

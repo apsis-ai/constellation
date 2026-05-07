@@ -14,9 +14,10 @@ type RawParser struct {
 	Callbacks ParserCallbacks
 }
 
-func (p *RawParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (p *RawParser) Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	var res streamResult
 	var sb strings.Builder
+	uiScanner := newUIDirectiveScanner(responseID)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 	for scanner.Scan() {
@@ -26,10 +27,10 @@ func (p *RawParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch
 		}
 		cleaned := p.Callbacks.ProcessTextWithStatus(sessionID, line+"\n")
 		if cleaned != "" {
-			ch <- ChanEvent{Type: ChanText, Text: cleaned}
-			sb.WriteString(cleaned)
+			processVisibleText(uiScanner, cleaned, ch, &sb)
 		}
 	}
+	closeVisibleText(uiScanner, ch, &sb)
 	if err := scanner.Err(); err != nil {
 		log.Printf("raw stream read error: %v", err)
 	}

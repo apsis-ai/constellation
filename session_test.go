@@ -292,6 +292,36 @@ func TestGetMessages_ReturnsPersistedMessageIDs(t *testing.T) {
 	}
 }
 
+func TestConversationEntryUIBlockRoundTrip(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer m.Close()
+	entry := ConversationEntry{
+		ID:            "assistant-response-1",
+		Role:          "ui_block",
+		BlockID:       "b1",
+		EventType:     "ui_block_completed",
+		Kind:          "card",
+		Schema:        "choice",
+		SchemaVersion: 1,
+		Payload:       map[string]interface{}{"title": "Pick"},
+		DisplayAs:     "info",
+	}
+
+	m.appendConversation("s1", entry)
+	entries, err := m.readConversation("s1")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "assistant-response-1" || entries[0].Role != "ui_block" || entries[0].BlockID != "b1" || entries[0].Schema != "choice" {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
 func TestSessionDir_CreatesDirectory(t *testing.T) {
 	cfg := tempConfig(t)
 	m, err := NewManager(cfg)

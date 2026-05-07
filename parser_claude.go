@@ -14,9 +14,10 @@ type ClaudeParser struct {
 	Callbacks ParserCallbacks
 }
 
-func (p *ClaudeParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (p *ClaudeParser) Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	var res streamResult
 	var sb strings.Builder
+	uiScanner := newUIDirectiveScanner(responseID)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 	for scanner.Scan() {
@@ -26,8 +27,7 @@ func (p *ClaudeParser) Parse(ctx context.Context, sessionID string, r io.Reader,
 		}
 		var event map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			ch <- ChanEvent{Type: ChanText, Text: line + "\n"}
-			sb.WriteString(line + "\n")
+			processVisibleText(uiScanner, line+"\n", ch, &sb)
 			continue
 		}
 		if t, ok := event["type"].(string); ok {
@@ -44,8 +44,7 @@ func (p *ClaudeParser) Parse(ctx context.Context, sessionID string, r io.Reader,
 								if text, ok := block["text"].(string); ok {
 									cleaned := p.Callbacks.ProcessTextWithStatus(sessionID, text)
 									if cleaned != "" {
-										ch <- ChanEvent{Type: ChanText, Text: cleaned}
-										sb.WriteString(cleaned)
+										processVisibleText(uiScanner, cleaned, ch, &sb)
 									}
 								}
 							} else if block["type"] == "tool_use" {
@@ -123,6 +122,7 @@ func (p *ClaudeParser) Parse(ctx context.Context, sessionID string, r io.Reader,
 			}
 		}
 	}
+	closeVisibleText(uiScanner, ch, &sb)
 	if err := scanner.Err(); err != nil {
 		log.Printf("stream read error: %v", err)
 	}

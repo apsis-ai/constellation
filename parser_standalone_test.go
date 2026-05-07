@@ -52,7 +52,7 @@ func TestClaudeParser_TextAndResult(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -82,7 +82,7 @@ func TestClaudeParser_ToolUse(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -124,7 +124,7 @@ func TestClaudeParser_AskUser(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -159,7 +159,7 @@ func TestClaudeParser_NonJSON(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -181,7 +181,7 @@ func TestCodexParser_TextAndUsage(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -208,7 +208,7 @@ func TestCodexParser_ItemDelta(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -233,7 +233,7 @@ func TestOpenCodeParser_TextAndSession(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -263,7 +263,7 @@ func TestOpenCodeParser_ToolUse(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -298,7 +298,7 @@ func TestOpenCodeParser_Error(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -325,7 +325,7 @@ func TestPiParser_TextAndSession(t *testing.T) {
 	p := &PiParser{Callbacks: cb}
 	ch := make(chan ChanEvent, 10)
 
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	var combined strings.Builder
@@ -352,7 +352,7 @@ func TestPiParser_ToolExecution(t *testing.T) {
 	p := &PiParser{Callbacks: cb}
 	ch := make(chan ChanEvent, 10)
 
-	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	foundAction := false
@@ -382,7 +382,7 @@ func TestCursorParser_TextAndResult(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -402,7 +402,7 @@ func TestCursorParser_Error(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert
@@ -428,7 +428,7 @@ func TestRawParser_StreamsAllLines(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert - every non-empty line should become a ChanText event
@@ -461,7 +461,7 @@ func TestRawParser_EmptyInput(t *testing.T) {
 	ch := make(chan ChanEvent, 32)
 
 	// Act
-	result := p.Parse(context.Background(), "test-session", strings.NewReader(input), ch)
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	// Assert

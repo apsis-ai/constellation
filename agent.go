@@ -193,7 +193,7 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 
 	var parser func(io.Reader, chan<- ChanEvent) streamResult
 	parser = func(r io.Reader, ch chan<- ChanEvent) streamResult {
-		return outputParser.Parse(context.Background(), sessionID, r, ch)
+		return outputParser.Parse(context.Background(), sessionID, responseMessageID, r, ch)
 	}
 
 	cmd.Stderr = os.Stderr

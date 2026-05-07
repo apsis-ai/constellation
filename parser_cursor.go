@@ -14,9 +14,10 @@ type CursorParser struct {
 	Callbacks ParserCallbacks
 }
 
-func (p *CursorParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (p *CursorParser) Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	var res streamResult
 	var sb strings.Builder
+	uiScanner := newUIDirectiveScanner(responseID)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 	for scanner.Scan() {
@@ -26,8 +27,7 @@ func (p *CursorParser) Parse(ctx context.Context, sessionID string, r io.Reader,
 		}
 		var event map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			ch <- ChanEvent{Type: ChanText, Text: line + "\n"}
-			sb.WriteString(line + "\n")
+			processVisibleText(uiScanner, line+"\n", ch, &sb)
 			continue
 		}
 		typeStr, _ := event["type"].(string)
@@ -44,8 +44,7 @@ func (p *CursorParser) Parse(ctx context.Context, sessionID string, r io.Reader,
 							if text, ok := block["text"].(string); ok {
 								cleaned := p.Callbacks.ProcessTextWithStatus(sessionID, text)
 								if cleaned != "" {
-									ch <- ChanEvent{Type: ChanText, Text: cleaned}
-									sb.WriteString(cleaned)
+									processVisibleText(uiScanner, cleaned, ch, &sb)
 								}
 							}
 						}
@@ -137,7 +136,6 @@ func (p *CursorParser) Parse(ctx context.Context, sessionID string, r io.Reader,
 				}
 			}
 		case "result":
-			res.FullText = sb.String()
 			if sid, ok := event["session_id"].(string); ok {
 				res.ConversationID = sid
 			}
@@ -151,12 +149,12 @@ func (p *CursorParser) Parse(ctx context.Context, sessionID string, r io.Reader,
 		case "error":
 			if isErr, ok := event["is_error"].(bool); ok && isErr {
 				if msg, ok := event["result"].(string); ok && msg != "" {
-					ch <- ChanEvent{Type: ChanText, Text: "\n[Error: " + msg + "]\n"}
-					sb.WriteString("\n[Error: " + msg + "]\n")
+					processVisibleText(uiScanner, "\n[Error: "+msg+"]\n", ch, &sb)
 				}
 			}
 		}
 	}
+	closeVisibleText(uiScanner, ch, &sb)
 	if err := scanner.Err(); err != nil {
 		log.Printf("cursor stream read error: %v", err)
 	}

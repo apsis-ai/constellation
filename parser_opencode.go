@@ -14,9 +14,10 @@ type OpenCodeParser struct {
 	Callbacks ParserCallbacks
 }
 
-func (p *OpenCodeParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (p *OpenCodeParser) Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	var res streamResult
 	var sb strings.Builder
+	uiScanner := newUIDirectiveScanner(responseID)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 	for scanner.Scan() {
@@ -26,8 +27,7 @@ func (p *OpenCodeParser) Parse(ctx context.Context, sessionID string, r io.Reade
 		}
 		var event map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			ch <- ChanEvent{Type: ChanText, Text: line + "\n"}
-			sb.WriteString(line + "\n")
+			processVisibleText(uiScanner, line+"\n", ch, &sb)
 			continue
 		}
 		typeStr, _ := event["type"].(string)
@@ -39,8 +39,7 @@ func (p *OpenCodeParser) Parse(ctx context.Context, sessionID string, r io.Reade
 				if text, ok := part["text"].(string); ok {
 					cleaned := p.Callbacks.ProcessTextWithStatus(sessionID, text)
 					if cleaned != "" {
-						ch <- ChanEvent{Type: ChanText, Text: cleaned}
-						sb.WriteString(cleaned)
+						processVisibleText(uiScanner, cleaned, ch, &sb)
 					}
 				}
 			}
@@ -113,8 +112,7 @@ func (p *OpenCodeParser) Parse(ctx context.Context, sessionID string, r io.Reade
 					}
 				}
 				if msg != "" {
-					ch <- ChanEvent{Type: ChanText, Text: "\n[Error: " + msg + "]\n"}
-					sb.WriteString("\n[Error: " + msg + "]\n")
+					processVisibleText(uiScanner, "\n[Error: "+msg+"]\n", ch, &sb)
 				}
 			}
 		}
@@ -123,6 +121,7 @@ func (p *OpenCodeParser) Parse(ctx context.Context, sessionID string, r io.Reade
 			res.ConversationID = sid
 		}
 	}
+	closeVisibleText(uiScanner, ch, &sb)
 	if err := scanner.Err(); err != nil {
 		log.Printf("opencode stream read error: %v", err)
 	}

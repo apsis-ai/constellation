@@ -61,7 +61,7 @@ type ModelInfo struct {
 
 // OutputParser parses streaming output from a provider.
 type OutputParser interface {
-	Parse(ctx context.Context, sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult
+	Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult
 }
 
 // ParserCallbacks provides Manager functionality to parsers without direct coupling.

@@ -16,7 +16,7 @@ func TestStreamClaudeOutput_TextAndResult(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	result := m.streamClaudeOutput("test-session", strings.NewReader(input), ch)
+	result := m.streamClaudeOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	if result.ConversationID != "sess-123" {
@@ -46,7 +46,7 @@ func TestStreamClaudeOutput_ToolUse(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	m.streamClaudeOutput("test-session", strings.NewReader(input), ch)
+	m.streamClaudeOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	var actions []string
@@ -74,7 +74,7 @@ func TestStreamCodexOutput_TextAndUsage(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	result := m.streamCodexOutput("test-session", strings.NewReader(input), ch)
+	result := m.streamCodexOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	if result.TokenUsage != 350 { // 200+50+100
@@ -104,7 +104,7 @@ func TestStreamOpenCodeOutput_TextAndSession(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	result := m.streamOpenCodeOutput("test-session", strings.NewReader(input), ch)
+	result := m.streamOpenCodeOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	if result.ConversationID != "oc-sess-1" {
@@ -134,7 +134,7 @@ func TestStreamOpenCodeOutput_Error(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	m.streamOpenCodeOutput("test-session", strings.NewReader(input), ch)
+	m.streamOpenCodeOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	var texts []string
@@ -160,7 +160,7 @@ func TestStreamCursorOutput_TextAndResult(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	result := m.streamCursorOutput("test-session", strings.NewReader(input), ch)
+	result := m.streamCursorOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	if result.ConversationID != "cur-sess" {
@@ -179,7 +179,7 @@ func TestStreamCursorOutput_Error(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	m.streamCursorOutput("test-session", strings.NewReader(input), ch)
+	m.streamCursorOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	var texts []string
@@ -202,7 +202,7 @@ func TestStreamClaudeOutput_NonJSON(t *testing.T) {
 	defer m.Close()
 
 	ch := make(chan ChanEvent, 32)
-	result := m.streamClaudeOutput("test-session", strings.NewReader(input), ch)
+	result := m.streamClaudeOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
 	close(ch)
 
 	if !strings.Contains(result.FullText, "plain text line") {

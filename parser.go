@@ -8,27 +8,27 @@ import (
 )
 
 // streamClaudeOutput delegates to ClaudeParser.
-func (m *Manager) streamClaudeOutput(sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (m *Manager) streamClaudeOutput(sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	p := &ClaudeParser{Callbacks: m.parserCallbacks(sessionID)}
-	return p.Parse(context.Background(), sessionID, r, ch)
+	return p.Parse(context.Background(), sessionID, responseID, r, ch)
 }
 
 // streamCodexOutput delegates to CodexParser.
-func (m *Manager) streamCodexOutput(sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (m *Manager) streamCodexOutput(sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	p := &CodexParser{Callbacks: m.parserCallbacks(sessionID)}
-	return p.Parse(context.Background(), sessionID, r, ch)
+	return p.Parse(context.Background(), sessionID, responseID, r, ch)
 }
 
 // streamOpenCodeOutput delegates to OpenCodeParser.
-func (m *Manager) streamOpenCodeOutput(sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (m *Manager) streamOpenCodeOutput(sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	p := &OpenCodeParser{Callbacks: m.parserCallbacks(sessionID)}
-	return p.Parse(context.Background(), sessionID, r, ch)
+	return p.Parse(context.Background(), sessionID, responseID, r, ch)
 }
 
 // streamCursorOutput delegates to CursorParser.
-func (m *Manager) streamCursorOutput(sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (m *Manager) streamCursorOutput(sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	p := &CursorParser{Callbacks: m.parserCallbacks(sessionID)}
-	return p.Parse(context.Background(), sessionID, r, ch)
+	return p.Parse(context.Background(), sessionID, responseID, r, ch)
 }
 
 // parserCallbacks returns ParserCallbacks wired to this Manager.

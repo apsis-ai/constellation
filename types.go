@@ -41,18 +41,24 @@ type Message struct {
 
 // ConversationEntry is a single line in conversation.jsonl.
 type ConversationEntry struct {
-	ID          string                 `json:"id,omitempty"`
-	Timestamp   string                 `json:"ts"`
-	Role        string                 `json:"role"`
-	Content     string                 `json:"content"`
-	Agent       string                 `json:"agent,omitempty"`
-	Tool        string                 `json:"tool,omitempty"`
-	Input       map[string]interface{} `json:"input,omitempty"`
-	Result      string                 `json:"result,omitempty"`
-	Summary     string                 `json:"summary,omitempty"`
-	Attachments []AttachmentRef        `json:"attachments,omitempty"`
-	Origin      string                 `json:"origin,omitempty"`
-	DisplayAs   string                 `json:"display_as,omitempty"`
+	ID            string                 `json:"id,omitempty"`
+	Timestamp     string                 `json:"ts"`
+	Role          string                 `json:"role"`
+	Content       string                 `json:"content"`
+	Agent         string                 `json:"agent,omitempty"`
+	Tool          string                 `json:"tool,omitempty"`
+	Input         map[string]interface{} `json:"input,omitempty"`
+	Result        string                 `json:"result,omitempty"`
+	Summary       string                 `json:"summary,omitempty"`
+	Attachments   []AttachmentRef        `json:"attachments,omitempty"`
+	Origin        string                 `json:"origin,omitempty"`
+	DisplayAs     string                 `json:"display_as,omitempty"`
+	BlockID       string                 `json:"block_id,omitempty"`
+	EventType     string                 `json:"event_type,omitempty"`
+	Kind          string                 `json:"kind,omitempty"`
+	Schema        string                 `json:"schema,omitempty"`
+	SchemaVersion int                    `json:"schema_version,omitempty"`
+	Payload       map[string]interface{} `json:"payload,omitempty"`
 }
 
 // AttachmentRef describes an uploaded file attached to a prompt.
@@ -127,6 +133,7 @@ const (
 	ChanText ChanEventType = iota
 	ChanAction
 	ChanAskUser
+	ChanUIBlock
 )
 
 // ChanEvent is a typed event on the Manager->consumer channel.

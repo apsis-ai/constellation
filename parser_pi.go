@@ -14,9 +14,10 @@ type PiParser struct {
 	Callbacks ParserCallbacks
 }
 
-func (p *PiParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch chan<- ChanEvent) streamResult {
+func (p *PiParser) Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	var res streamResult
 	var sb strings.Builder
+	uiScanner := newUIDirectiveScanner(responseID)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 
@@ -28,8 +29,7 @@ func (p *PiParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch 
 
 		var event map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			ch <- ChanEvent{Type: ChanText, Text: line + "\n"}
-			sb.WriteString(line + "\n")
+			processVisibleText(uiScanner, line+"\n", ch, &sb)
 			continue
 		}
 
@@ -46,8 +46,7 @@ func (p *PiParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch 
 			if delta := piTextDelta(event); delta != "" {
 				cleaned := p.Callbacks.ProcessTextWithStatus(sessionID, delta)
 				if cleaned != "" {
-					ch <- ChanEvent{Type: ChanText, Text: cleaned}
-					sb.WriteString(cleaned)
+					processVisibleText(uiScanner, cleaned, ch, &sb)
 				}
 			}
 		case "tool_execution_start", "tool_execution_update", "tool_execution_end":
@@ -69,6 +68,7 @@ func (p *PiParser) Parse(ctx context.Context, sessionID string, r io.Reader, ch 
 			}
 		}
 	}
+	closeVisibleText(uiScanner, ch, &sb)
 	if err := scanner.Err(); err != nil {
 		log.Printf("pi stream read error: %v", err)
 	}
