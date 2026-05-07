@@ -55,14 +55,34 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 		}
 	}
 
+	providerID := req.ProviderID
+	configValues := req.ConfigValues
 	agent := req.Agent
 	agentSub := req.AgentSub
 	model := req.Model
 	effort := req.Effort
-	var lastAgent, lastAgentSub, lastModel, lastEffort string
-	_ = m.db.QueryRow(`SELECT COALESCE(last_agent,'claude'), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,'') FROM sessions WHERE id = ?`, req.SessionID).Scan(&lastAgent, &lastAgentSub, &lastModel, &lastEffort)
+	var lastAgent, lastAgentSub, lastModel, lastEffort, lastProviderID, lastConfigValuesJSON string
+	_ = m.db.QueryRow(`SELECT COALESCE(last_agent,'claude'), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), COALESCE(provider_id,''), COALESCE(config_values_json,'{}') FROM sessions WHERE id = ?`, req.SessionID).Scan(&lastAgent, &lastAgentSub, &lastModel, &lastEffort, &lastProviderID, &lastConfigValuesJSON)
 	if lastAgent == "" {
 		lastAgent = "claude"
+	}
+	if providerID == "" {
+		providerID = lastProviderID
+	}
+	if providerID == "" {
+		providerID = agent
+	}
+	if providerID == "" {
+		providerID = lastAgent
+	}
+	if providerID == "" {
+		providerID = "claude"
+	}
+	if configValues == nil || len(configValues) == 0 {
+		configValues = UnmarshalConfigValues(lastConfigValuesJSON)
+	}
+	if agent == "" {
+		agent = providerID
 	}
 	if agent == "" {
 		agent = lastAgent
@@ -91,9 +111,9 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 		attJSON = string(b)
 	}
 
-	_, err = m.db.Exec(`INSERT INTO follow_up_queue (id, session_id, text, position, agent, agent_sub, model, effort, attachments, created_at, source, status, transcript, message_id, response_id, working_directory)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-		id, req.SessionID, req.Text, position, agent, agentSub, model, effort, attJSON, now, source, req.Transcript, messageID, responseID, workingDirectory)
+	_, err = m.db.Exec(`INSERT INTO follow_up_queue (id, session_id, text, position, provider_id, config_values_json, agent, agent_sub, model, effort, attachments, created_at, source, status, transcript, message_id, response_id, working_directory)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+		id, req.SessionID, req.Text, position, providerID, MarshalConfigValues(configValues), agent, agentSub, model, effort, attJSON, now, source, req.Transcript, messageID, responseID, workingDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +124,8 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 		Text:             req.Text,
 		WorkingDirectory: workingDirectory,
 		Position:         position,
+		ProviderID:       providerID,
+		ConfigValues:     configValues,
 		Agent:            agent,
 		AgentSub:         agentSub,
 		Model:            model,
@@ -120,44 +142,39 @@ func (m *Manager) AddToQueue(req QueueAddRequest) (*QueueItem, error) {
 
 // ListQueue returns pending queue items for a session ordered by position ascending.
 func (m *Manager) ListQueue(sessionID string) ([]QueueItem, error) {
-	rows, err := m.db.Query(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
+	rows, err := m.db.Query(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, COALESCE(provider_id,''), COALESCE(config_values_json,'{}'), agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
 		FROM follow_up_queue WHERE session_id = ? AND status = 'pending' ORDER BY position ASC`, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var items []QueueItem
-	for rows.Next() {
-		var q QueueItem
-		var attJSON string
-		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
-			return nil, err
-		}
-		if attJSON != "" && attJSON != "[]" {
-			_ = json.Unmarshal([]byte(attJSON), &q.Attachments)
-		}
-		items = append(items, q)
-	}
-	return items, nil
+	return scanQueueRows(rows)
 }
 
 // ListQueueAll returns all queue items for a session (including completed/failed) ordered by position ascending.
 func (m *Manager) ListQueueAll(sessionID string) ([]QueueItem, error) {
-	rows, err := m.db.Query(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
+	rows, err := m.db.Query(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, COALESCE(provider_id,''), COALESCE(config_values_json,'{}'), agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
 		FROM follow_up_queue WHERE session_id = ? ORDER BY position ASC`, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanQueueRows(rows)
+}
 
+func scanQueueRows(rows *sql.Rows) ([]QueueItem, error) {
 	var items []QueueItem
 	for rows.Next() {
 		var q QueueItem
 		var attJSON string
-		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
+		var configValuesJSON string
+		if err := rows.Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.ProviderID, &configValuesJSON, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error); err != nil {
 			return nil, err
 		}
+		if q.ProviderID == "" {
+			q.ProviderID = q.Agent
+		}
+		q.ConfigValues = UnmarshalConfigValues(configValuesJSON)
 		if attJSON != "" && attJSON != "[]" {
 			_ = json.Unmarshal([]byte(attJSON), &q.Attachments)
 		}
@@ -205,11 +222,13 @@ func (m *Manager) UpdateQueueItem(sessionID, itemID string, update QueueItemUpda
 	}
 	var q QueueItem
 	var attJSON string
-	err = m.db.QueryRow(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
-		FROM follow_up_queue WHERE id = ?`, itemID).Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error)
+	var configValuesJSON string
+	err = m.db.QueryRow(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, COALESCE(provider_id,''), COALESCE(config_values_json,'{}'), agent, agent_sub, model, effort, COALESCE(attachments,'[]'), created_at, source, status, transcript, CAST(message_id AS TEXT), COALESCE(response_id, ''), started_at, completed_at, error
+		FROM follow_up_queue WHERE id = ?`, itemID).Scan(&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.ProviderID, &configValuesJSON, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Status, &q.Transcript, &q.MessageID, &q.ResponseID, &q.StartedAt, &q.CompletedAt, &q.Error)
 	if err != nil {
 		return nil, err
 	}
+	q.ConfigValues = UnmarshalConfigValues(configValuesJSON)
 	if attJSON != "" && attJSON != "[]" {
 		_ = json.Unmarshal([]byte(attJSON), &q.Attachments)
 	}
@@ -232,9 +251,10 @@ func (m *Manager) PopNextFromQueue(sessionID string) *QueueItem {
 
 	var q QueueItem
 	var attJSON string
-	err = tx.QueryRow(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, agent, agent_sub, model, effort, attachments, created_at, source, transcript, CAST(message_id AS TEXT), COALESCE(response_id, '')
+	var configValuesJSON string
+	err = tx.QueryRow(`SELECT id, session_id, text, COALESCE(working_directory, ''), position, COALESCE(provider_id,''), COALESCE(config_values_json,'{}'), agent, agent_sub, model, effort, attachments, created_at, source, transcript, CAST(message_id AS TEXT), COALESCE(response_id, '')
 		FROM follow_up_queue WHERE session_id = ? AND status = 'pending' ORDER BY position ASC LIMIT 1`, sessionID).Scan(
-		&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Transcript, &q.MessageID, &q.ResponseID)
+		&q.ID, &q.SessionID, &q.Text, &q.WorkingDirectory, &q.Position, &q.ProviderID, &configValuesJSON, &q.Agent, &q.AgentSub, &q.Model, &q.Effort, &attJSON, &q.CreatedAt, &q.Source, &q.Transcript, &q.MessageID, &q.ResponseID)
 	if err != nil {
 		return nil
 	}
@@ -251,6 +271,10 @@ func (m *Manager) PopNextFromQueue(sessionID string) *QueueItem {
 
 	q.Status = "processing"
 	q.StartedAt = now
+	if q.ProviderID == "" {
+		q.ProviderID = q.Agent
+	}
+	q.ConfigValues = UnmarshalConfigValues(configValuesJSON)
 	if attJSON != "" && attJSON != "[]" {
 		_ = json.Unmarshal([]byte(attJSON), &q.Attachments)
 	}
@@ -380,10 +404,16 @@ func processQueueItem(m *Manager, sessionID string) {
 		return
 	}
 
+	providerID := item.ProviderID
+	if providerID == "" {
+		providerID = item.Agent
+	}
 	result, err := m.Send(SendRequest{
 		Prompt:           item.Text,
 		SessionID:        sessionID,
-		Agent:            item.Agent,
+		ProviderID:       providerID,
+		ConfigValues:     item.ConfigValues,
+		Agent:            providerID,
 		AgentSub:         item.AgentSub,
 		Model:            item.Model,
 		Effort:           item.Effort,

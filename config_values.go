@@ -1,12 +1,38 @@
 package mux
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 )
 
 type ConfigValues map[string]any
+
+func MarshalConfigValues(values map[string]any) string {
+	if values == nil {
+		return "{}"
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func UnmarshalConfigValues(raw string) map[string]any {
+	if raw == "" {
+		return map[string]any{}
+	}
+	var values map[string]any
+	if json.Unmarshal([]byte(raw), &values) != nil {
+		return map[string]any{}
+	}
+	if values == nil {
+		return map[string]any{}
+	}
+	return values
+}
 
 func ValidateConfigValues(provider ProviderRuntimeConfig, values ConfigValues) []ConfigValidationError {
 	var errs []ConfigValidationError

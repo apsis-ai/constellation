@@ -2,6 +2,17 @@ package mux
 
 import "testing"
 
+func TestConfigValuesJSONRoundTrip(t *testing.T) {
+	values := map[string]any{"model": "openai/gpt-5", "effort": "high"}
+
+	raw := MarshalConfigValues(values)
+	decoded := UnmarshalConfigValues(raw)
+
+	if decoded["model"] != "openai/gpt-5" || decoded["effort"] != "high" {
+		t.Fatalf("unexpected decoded values: %#v", decoded)
+	}
+}
+
 func TestValidateConfigValuesRejectsInvalidNestedProviderModel(t *testing.T) {
 	provider := ProviderRuntimeConfig{ID: "pi", Status: ProviderStatusReady, Sections: []ConfigSection{{ID: "provider", Fields: []ConfigField{{Key: "upstream_provider", Type: FieldTypeSelect, Required: true, Options: []ConfigOption{{Value: "openai", Label: "OpenAI"}}}}}, {ID: "model", Fields: []ConfigField{{Key: "model", Type: FieldTypeSelect, Required: true, OptionsSource: &OptionsSource{FilterBy: &FieldFilter{Field: "upstream_provider", Path: "provider"}}, Options: []ConfigOption{{Value: "anthropic/claude", Label: "Claude", Meta: map[string]any{"provider": "anthropic"}}}}}}}}
 

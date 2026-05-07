@@ -210,7 +210,7 @@ func (m *Manager) CreateSession(sessionID string) error {
 
 // ListSessions returns all sessions ordered by last_active_at DESC.
 func (m *Manager) ListSessions() ([]Session, error) {
-	rows, err := m.db.Query(`SELECT id, status, COALESCE(handoff_path,''), COALESCE(title,''), COALESCE(last_agent,''), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), created_at, last_active_at, COALESCE(working_directory,'') FROM sessions ORDER BY last_active_at DESC`)
+	rows, err := m.db.Query(`SELECT id, status, COALESCE(handoff_path,''), COALESCE(title,''), COALESCE(last_agent,''), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), COALESCE(provider_id,''), COALESCE(config_values_json,'{}'), created_at, last_active_at, COALESCE(working_directory,'') FROM sessions ORDER BY last_active_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -232,12 +232,14 @@ type sessionScanner interface {
 
 func scanSession(scanner sessionScanner) (Session, error) {
 	var s Session
-	err := scanner.Scan(&s.ID, &s.Status, &s.HandoffPath, &s.Title, &s.LastAgent, &s.LastAgentSub, &s.LastModel, &s.LastEffort, &s.CreatedAt, &s.LastActiveAt, &s.WorkingDirectory)
+	var configValuesJSON string
+	err := scanner.Scan(&s.ID, &s.Status, &s.HandoffPath, &s.Title, &s.LastAgent, &s.LastAgentSub, &s.LastModel, &s.LastEffort, &s.ProviderID, &configValuesJSON, &s.CreatedAt, &s.LastActiveAt, &s.WorkingDirectory)
+	s.ConfigValues = UnmarshalConfigValues(configValuesJSON)
 	return s, err
 }
 
 func (m *Manager) getSession(sessionID string) (Session, error) {
-	return scanSession(m.db.QueryRow(`SELECT id, status, COALESCE(handoff_path,''), COALESCE(title,''), COALESCE(last_agent,''), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), created_at, last_active_at, COALESCE(working_directory,'') FROM sessions WHERE id = ?`, sessionID))
+	return scanSession(m.db.QueryRow(`SELECT id, status, COALESCE(handoff_path,''), COALESCE(title,''), COALESCE(last_agent,''), COALESCE(last_agent_sub,''), COALESCE(last_model,''), COALESCE(last_effort,''), COALESCE(provider_id,''), COALESCE(config_values_json,'{}'), created_at, last_active_at, COALESCE(working_directory,'') FROM sessions WHERE id = ?`, sessionID))
 }
 
 // DeleteSession deletes a session and its files.
@@ -341,6 +343,8 @@ func initDB(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN last_agent_sub TEXT NOT NULL DEFAULT ''`)
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN last_model TEXT NOT NULL DEFAULT ''`)
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN last_effort TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN config_values_json TEXT NOT NULL DEFAULT '{}'`)
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN pid INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN working_directory TEXT NOT NULL DEFAULT ''`)
 
@@ -383,6 +387,8 @@ func initDB(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN completed_at INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN error TEXT NOT NULL DEFAULT ''`)
 	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN working_directory TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`ALTER TABLE follow_up_queue ADD COLUMN config_values_json TEXT NOT NULL DEFAULT '{}'`)
 
 	return nil
 }

@@ -17,17 +17,19 @@ const (
 
 // Session represents a conversation session with an AI agent.
 type Session struct {
-	ID               string        `json:"id"`
-	Status           SessionStatus `json:"status"`
-	HandoffPath      string        `json:"handoff_path,omitempty"`
-	Title            string        `json:"title"`
-	LastAgent        string        `json:"last_agent"`
-	LastAgentSub     string        `json:"last_agent_sub"`
-	LastModel        string        `json:"last_model"`
-	LastEffort       string        `json:"last_effort"`
-	WorkingDirectory string        `json:"working_directory"`
-	CreatedAt        int64         `json:"created_at"`
-	LastActiveAt     int64         `json:"last_active_at"`
+	ID               string         `json:"id"`
+	Status           SessionStatus  `json:"status"`
+	HandoffPath      string         `json:"handoff_path,omitempty"`
+	Title            string         `json:"title"`
+	LastAgent        string         `json:"last_agent"`
+	LastAgentSub     string         `json:"last_agent_sub"`
+	LastModel        string         `json:"last_model"`
+	LastEffort       string         `json:"last_effort"`
+	ProviderID       string         `json:"provider_id,omitempty"`
+	ConfigValues     map[string]any `json:"config_values,omitempty"`
+	WorkingDirectory string         `json:"working_directory"`
+	CreatedAt        int64          `json:"created_at"`
+	LastActiveAt     int64          `json:"last_active_at"`
 }
 
 // Message is a single conversation turn stored in the DB.
@@ -64,25 +66,27 @@ type AttachmentRef struct {
 
 // QueueItem represents a follow-up message waiting to be processed.
 type QueueItem struct {
-	ID               string   `json:"id"`
-	SessionID        string   `json:"session_id"`
-	Text             string   `json:"text"`
-	WorkingDirectory string   `json:"working_directory,omitempty"`
-	Position         int      `json:"position"`
-	Agent            string   `json:"agent"`
-	AgentSub         string   `json:"agent_sub"`
-	Model            string   `json:"model"`
-	Effort           string   `json:"effort"`
-	Attachments      []string `json:"attachments,omitempty"`
-	CreatedAt        int64    `json:"created_at"`
-	Source           string   `json:"source"`
-	Status           string   `json:"status"`
-	Transcript       string   `json:"transcript,omitempty"`
-	MessageID        string   `json:"message_id,omitempty"`
-	ResponseID       string   `json:"response_id,omitempty"`
-	StartedAt        int64    `json:"started_at,omitempty"`
-	CompletedAt      int64    `json:"completed_at,omitempty"`
-	Error            string   `json:"error,omitempty"`
+	ID               string         `json:"id"`
+	SessionID        string         `json:"session_id"`
+	Text             string         `json:"text"`
+	WorkingDirectory string         `json:"working_directory,omitempty"`
+	Position         int            `json:"position"`
+	ProviderID       string         `json:"provider_id,omitempty"`
+	ConfigValues     map[string]any `json:"config_values,omitempty"`
+	Agent            string         `json:"agent"`
+	AgentSub         string         `json:"agent_sub"`
+	Model            string         `json:"model"`
+	Effort           string         `json:"effort"`
+	Attachments      []string       `json:"attachments,omitempty"`
+	CreatedAt        int64          `json:"created_at"`
+	Source           string         `json:"source"`
+	Status           string         `json:"status"`
+	Transcript       string         `json:"transcript,omitempty"`
+	MessageID        string         `json:"message_id,omitempty"`
+	ResponseID       string         `json:"response_id,omitempty"`
+	StartedAt        int64          `json:"started_at,omitempty"`
+	CompletedAt      int64          `json:"completed_at,omitempty"`
+	Error            string         `json:"error,omitempty"`
 }
 
 // AskUserPending holds a pending ask_user question.
@@ -153,6 +157,8 @@ type QueueAddRequest struct {
 	SessionID        string
 	Text             string
 	WorkingDirectory string
+	ProviderID       string
+	ConfigValues     map[string]any
 	Agent            string
 	AgentSub         string
 	Model            string
@@ -175,6 +181,8 @@ type QueueItemUpdate struct {
 type SendRequest struct {
 	Prompt           string
 	SessionID        string
+	ProviderID       string
+	ConfigValues     map[string]any
 	Agent            string
 	AgentSub         string
 	Model            string

@@ -426,7 +426,7 @@ func (p *CLIProvider) BuildArgs(req ProviderRequest) []string {
 	}
 
 	if req.RuntimeConfig != nil && len(req.ConfigValues) > 0 {
-		args = append(args, buildMappedArgs(*req.RuntimeConfig, req.ConfigValues)...)
+		args = append(args, buildMappedArgs(*req.RuntimeConfig, ConfigValues(req.ConfigValues))...)
 	} else {
 		if req.Model != "" && p.config.ModelFlag != "" {
 			args = append(args, p.config.ModelFlag, req.Model)
@@ -490,7 +490,7 @@ func (p *CLIProvider) BuildCommand(req ProviderRequest) (*exec.Cmd, error) {
 		cmd.Env = os.Environ()
 	}
 	if req.RuntimeConfig != nil && len(req.ConfigValues) > 0 {
-		cmd.Env = mergeEnv(cmd.Env, buildMappedEnv(*req.RuntimeConfig, req.ConfigValues))
+		cmd.Env = mergeEnv(cmd.Env, buildMappedEnv(*req.RuntimeConfig, ConfigValues(req.ConfigValues)))
 	}
 
 	return cmd, nil

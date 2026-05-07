@@ -38,9 +38,16 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	if sessionID == "" {
 		sessionID = uuid.New().String()
 	}
+	providerID := req.ProviderID
+	if providerID == "" {
+		providerID = req.Agent
+	}
+	if providerID == "" {
+		providerID = "claude"
+	}
 	agent := req.Agent
 	if agent == "" {
-		agent = "claude"
+		agent = providerID
 	}
 	userMessageID := strings.TrimSpace(req.MessageID)
 	if userMessageID == "" {
@@ -134,14 +141,24 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 
 	m.setUserMessage(sessionID, req.Prompt)
 
+	runtimeProvider, validationErrs := m.runtimeConfigForProvider(context.Background(), providerID)
+	if len(validationErrs) > 0 {
+		return nil, fmt.Errorf("invalid provider config: %v", validationErrs)
+	}
+	if runtimeProvider != nil {
+		if errs := ValidateConfigValues(*runtimeProvider, ConfigValues(req.ConfigValues)); len(errs) > 0 {
+			return nil, fmt.Errorf("invalid config values: %v", errs)
+		}
+	}
+
 	// Get provider from registry
-	cliProv, ok := m.providers.GetCLIProvider(agent)
+	cliProv, ok := m.providers.GetCLIProvider(providerID)
 	if !ok {
-		return nil, fmt.Errorf("unknown provider: %s", agent)
+		return nil, fmt.Errorf("unknown provider: %s", providerID)
 	}
 
 	if err := cliProv.Validate(); err != nil {
-		return nil, fmt.Errorf("provider %s not available: %w", agent, err)
+		return nil, fmt.Errorf("provider %s not available: %w", providerID, err)
 	}
 
 	// Build MCP config
@@ -169,6 +186,8 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 		MCPConfig:        mcpConfig,
 		Env:              env,
 		WorkingDirectory: workingDirectory,
+		ConfigValues:     req.ConfigValues,
+		RuntimeConfig:    runtimeProvider,
 	}
 
 	cmd, err := cliProv.BuildCommand(provReq)
@@ -201,7 +220,7 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	m.activeProcesses[sessionID] = &processEntry{
 		Pid:     cmd.Process.Pid,
 		Kill:    func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) },
-		AgentID: agent,
+		AgentID: providerID,
 	}
 	delete(m.stoppedSessions, sessionID)
 	m.mu.Unlock()
@@ -210,7 +229,7 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	m.broadcast.PublishStatus(sessionID, "active", "Thinking...", "", req.Prompt, m.QueueLength(sessionID), m.IsQueuePaused(sessionID))
 
 	ch := make(chan ChanEvent, 32)
-	go m.runAgentLoop(sessionID, agent, req, cmd, stdoutPipe, parser, ch)
+	go m.runAgentLoop(sessionID, providerID, req, cmd, stdoutPipe, parser, ch)
 
 	return &SendResult{
 		Events:            ch,
@@ -219,6 +238,22 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 		UserMessageID:     userMessageID,
 		ResponseMessageID: responseMessageID,
 	}, nil
+}
+
+func (m *Manager) runtimeConfigForProvider(ctx context.Context, providerID string) (*ProviderRuntimeConfig, []ConfigValidationError) {
+	if providerID == "" || m.providers == nil {
+		return nil, nil
+	}
+	providers, errs, err := NewRuntimeConfigService(m.providers.store).List(ctx)
+	if err != nil || len(errs) > 0 {
+		return nil, errs
+	}
+	for _, provider := range providers {
+		if provider.ID == providerID {
+			return &provider, nil
+		}
+	}
+	return nil, nil
 }
 
 // runAgentLoop reads output, persists results, and handles post-completion.
@@ -238,11 +273,11 @@ func (m *Manager) runAgentLoop(sessionID, agent string, req SendRequest, cmd *ex
 
 	now := nowUnix()
 	if result.ConversationID != "" {
-		_, _ = m.db.Exec(`UPDATE sessions SET conversation_id = ?, token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = ?, last_model = ?, last_effort = ? WHERE id = ?`,
-			result.ConversationID, result.TokenUsage, now, agent, req.AgentSub, req.Model, req.Effort, sessionID)
+		_, _ = m.db.Exec(`UPDATE sessions SET conversation_id = ?, token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = ?, last_model = ?, last_effort = ?, provider_id = ?, config_values_json = ? WHERE id = ?`,
+			result.ConversationID, result.TokenUsage, now, agent, req.AgentSub, req.Model, req.Effort, agent, MarshalConfigValues(req.ConfigValues), sessionID)
 	} else {
-		_, _ = m.db.Exec(`UPDATE sessions SET token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = ?, last_model = ?, last_effort = ? WHERE id = ?`,
-			result.TokenUsage, now, agent, req.AgentSub, req.Model, req.Effort, sessionID)
+		_, _ = m.db.Exec(`UPDATE sessions SET token_usage = ?, last_active_at = ?, last_agent = ?, last_agent_sub = ?, last_model = ?, last_effort = ?, provider_id = ?, config_values_json = ? WHERE id = ?`,
+			result.TokenUsage, now, agent, req.AgentSub, req.Model, req.Effort, agent, MarshalConfigValues(req.ConfigValues), sessionID)
 	}
 
 	if result.FullText != "" {

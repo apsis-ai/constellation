@@ -8,6 +8,28 @@ import (
 	"testing"
 )
 
+func TestQueuePersistsCanonicalConfigValues(t *testing.T) {
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer m.Close()
+	m.CreateSession("q-canonical")
+
+	queueItem, err := m.AddToQueue(QueueAddRequest{SessionID: "q-canonical", Text: "follow-up", ProviderID: "pi", ConfigValues: map[string]any{"model": "openai/gpt-5"}, Agent: "pi", Model: "openai/gpt-5"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queueItem.ProviderID != "pi" {
+		t.Fatalf("expected pi, got %s", queueItem.ProviderID)
+	}
+	if queueItem.ConfigValues["model"] != "openai/gpt-5" {
+		t.Fatalf("unexpected config values: %#v", queueItem.ConfigValues)
+	}
+}
+
 func TestAddToQueue_Basic(t *testing.T) {
 	cfg := tempConfig(t)
 	m, err := NewManager(cfg)
