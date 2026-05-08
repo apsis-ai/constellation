@@ -81,6 +81,13 @@ Sends a prompt to an agent. Creates the session if it doesn't exist, persists th
 | ChanText | Text output from the agent |
 | ChanAction | Tool/action status update |
 | ChanAskUser | Agent is asking the user a question |
+| ChanUIBlock | Structured UI block payload |
+
+**ChanEvent fields for UI blocks:**
+| Field | Description |
+|-------|-------------|
+| JSON | Serialized `UIBlockEvent` payload |
+| UIEventType | UI block phase such as `ui_block_started`, `ui_block_delta`, or `ui_block_completed` |
 
 ```go
 func (m *Manager) Stop(sessionID string) error

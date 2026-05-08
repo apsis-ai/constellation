@@ -138,9 +138,10 @@ const (
 
 // ChanEvent is a typed event on the Manager->consumer channel.
 type ChanEvent struct {
-	Type ChanEventType
-	Text string
-	JSON string
+	Type        ChanEventType
+	Text        string
+	JSON        string
+	UIEventType SessionStreamEventType
 }
 
 // streamResult holds parsed result from agent output stream.

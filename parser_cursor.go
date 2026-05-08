@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,39 @@ type CursorParser struct {
 func (p *CursorParser) Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	var res streamResult
 	var sb strings.Builder
+	var thinking strings.Builder
+	thinkingIndex := 0
+	thinkingBlockID := ""
+	thinkingStarted := false
+	emitThinking := func(eventType SessionStreamEventType) {
+		if strings.TrimSpace(thinking.String()) == "" {
+			return
+		}
+		if thinkingBlockID == "" {
+			thinkingIndex++
+			thinkingBlockID = newStableRationaleBlockID(responseID, "cursor-thinking-"+strconv.Itoa(thinkingIndex))
+		}
+		evt := newRationaleSummaryChanEvent(responseID, thinkingBlockID, thinking.String(), eventType)
+		if evt.Type == ChanUIBlock {
+			ch <- evt
+		}
+	}
+	finishThinking := func() {
+		if strings.TrimSpace(thinking.String()) == "" {
+			thinking.Reset()
+			thinkingBlockID = ""
+			thinkingStarted = false
+			return
+		}
+		if !thinkingStarted {
+			emitThinking(SSEUIBlockStarted)
+			thinkingStarted = true
+		}
+		emitThinking(SSEUIBlockCompleted)
+		thinking.Reset()
+		thinkingBlockID = ""
+		thinkingStarted = false
+	}
 	uiScanner := newUIDirectiveScanner(responseID)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
@@ -32,6 +66,20 @@ func (p *CursorParser) Parse(ctx context.Context, sessionID string, responseID s
 		}
 		typeStr, _ := event["type"].(string)
 		switch typeStr {
+		case "thinking":
+			if text, ok := event["text"].(string); ok && text != "" {
+				thinking.WriteString(text)
+				if !thinkingStarted {
+					emitThinking(SSEUIBlockStarted)
+					thinkingStarted = true
+				} else {
+					emitThinking(SSEUIBlockDelta)
+				}
+			}
+			subtype, _ := event["subtype"].(string)
+			if subtype == "completed" {
+				finishThinking()
+			}
 		case "assistant":
 			if msg, ok := event["message"].(map[string]interface{}); ok {
 				if content, ok := msg["content"].([]interface{}); ok {
@@ -154,6 +202,7 @@ func (p *CursorParser) Parse(ctx context.Context, sessionID string, responseID s
 			}
 		}
 	}
+	finishThinking()
 	closeVisibleText(uiScanner, ch, &sb)
 	if err := scanner.Err(); err != nil {
 		log.Printf("cursor stream read error: %v", err)

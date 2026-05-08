@@ -417,9 +417,21 @@ func processQueueItem(m *Manager, sessionID string) {
 		case ChanUIBlock:
 			var block UIBlockEvent
 			if err := json.Unmarshal([]byte(evt.JSON), &block); err == nil {
-				bc.PublishUIBlockStarted(sessionID, block)
-				bc.PublishUIBlockCompleted(sessionID, block)
-				m.AppendUIBlock(sessionID, block, SSEUIBlockCompleted)
+				switch evt.UIEventType {
+				case SSEUIBlockStarted:
+					bc.PublishUIBlockStarted(sessionID, block)
+				case SSEUIBlockDelta:
+					bc.PublishUIBlockDelta(sessionID, block)
+				case SSEUIBlockFailed:
+					bc.PublishUIBlockFailed(sessionID, block)
+				case SSEUIBlockCompleted:
+					bc.PublishUIBlockCompleted(sessionID, block)
+					m.AppendUIBlock(sessionID, block, SSEUIBlockCompleted)
+				default:
+					bc.PublishUIBlockStarted(sessionID, block)
+					bc.PublishUIBlockCompleted(sessionID, block)
+					m.AppendUIBlock(sessionID, block, SSEUIBlockCompleted)
+				}
 			}
 		case ChanText:
 			bc.PublishChunk(sessionID, result.ResponseMessageID, evt.Text)

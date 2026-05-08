@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -168,6 +169,56 @@ func TestStreamCursorOutput_TextAndResult(t *testing.T) {
 	}
 	if result.TokenUsage != 480 { // 300+150+20+10
 		t.Errorf("expected token usage 480, got %d", result.TokenUsage)
+	}
+}
+
+func TestStreamCursorOutput_ThinkingStreamsRationaleAndOutput(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"thinking","subtype":"delta","text":"I should inspect"}`,
+		`{"type":"thinking","subtype":"delta","text":" the current state."}`,
+		`{"type":"thinking","subtype":"completed"}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Done"}]}}`,
+	}, "\n")
+
+	cfg := tempConfig(t)
+	m, _ := NewManager(cfg)
+	defer m.Close()
+
+	ch := make(chan ChanEvent, 32)
+	result := m.streamCursorOutput("test-session", "assistant-response-1", strings.NewReader(input), ch)
+	close(ch)
+
+	var uiEvents []ChanEvent
+	var output strings.Builder
+	for evt := range ch {
+		switch evt.Type {
+		case ChanUIBlock:
+			uiEvents = append(uiEvents, evt)
+		case ChanText:
+			output.WriteString(evt.Text)
+		}
+	}
+	if len(uiEvents) != 3 {
+		t.Fatalf("expected started/delta/completed rationale events, got %#v", uiEvents)
+	}
+	if uiEvents[0].UIEventType != SSEUIBlockStarted || uiEvents[1].UIEventType != SSEUIBlockDelta || uiEvents[2].UIEventType != SSEUIBlockCompleted {
+		t.Fatalf("unexpected rationale event types: %#v", uiEvents)
+	}
+	var firstBlock, finalBlock UIBlockEvent
+	if err := json.Unmarshal([]byte(uiEvents[0].JSON), &firstBlock); err != nil {
+		t.Fatalf("unmarshal first block: %v", err)
+	}
+	if err := json.Unmarshal([]byte(uiEvents[2].JSON), &finalBlock); err != nil {
+		t.Fatalf("unmarshal final block: %v", err)
+	}
+	if firstBlock.BlockID == "" || firstBlock.BlockID != finalBlock.BlockID {
+		t.Fatalf("expected stable block id across rationale stream, first=%q final=%q", firstBlock.BlockID, finalBlock.BlockID)
+	}
+	if finalBlock.Schema != "rationale_summary" || finalBlock.Payload["text"] != "I should inspect the current state." {
+		t.Fatalf("unexpected final rationale block: %#v", finalBlock)
+	}
+	if output.String() != "Done" || result.FullText != "Done" {
+		t.Fatalf("expected visible output to remain Done, output=%q full=%q", output.String(), result.FullText)
 	}
 }
 

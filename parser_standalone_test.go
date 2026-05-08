@@ -2,6 +2,7 @@ package mux
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -342,6 +343,53 @@ func TestPiParser_TextAndSession(t *testing.T) {
 	}
 	if result.ConversationID != "pi-session-123" {
 		t.Fatalf("expected conversation ID, got %q", result.ConversationID)
+	}
+}
+
+func TestPiParser_ThinkingStreamsRationale(t *testing.T) {
+	input := `{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"Inspecting"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":" files"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_end"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Done"}}
+`
+	cb, _ := testCallbacks()
+	p := &PiParser{Callbacks: cb}
+	ch := make(chan ChanEvent, 10)
+
+	result := p.Parse(context.Background(), "test-session", "assistant-response-1", strings.NewReader(input), ch)
+	close(ch)
+
+	var uiEvents []ChanEvent
+	var combined strings.Builder
+	for ev := range ch {
+		if ev.Type == ChanUIBlock {
+			uiEvents = append(uiEvents, ev)
+		}
+		if ev.Type == ChanText {
+			combined.WriteString(ev.Text)
+		}
+	}
+	if len(uiEvents) != 3 {
+		t.Fatalf("expected started/delta/completed thinking UI events, got %#v", uiEvents)
+	}
+	if uiEvents[0].UIEventType != SSEUIBlockStarted || uiEvents[1].UIEventType != SSEUIBlockDelta || uiEvents[2].UIEventType != SSEUIBlockCompleted {
+		t.Fatalf("unexpected UI event types: %#v", uiEvents)
+	}
+	var firstBlock, finalBlock UIBlockEvent
+	if err := json.Unmarshal([]byte(uiEvents[0].JSON), &firstBlock); err != nil {
+		t.Fatalf("unmarshal first block: %v", err)
+	}
+	if err := json.Unmarshal([]byte(uiEvents[2].JSON), &finalBlock); err != nil {
+		t.Fatalf("unmarshal final block: %v", err)
+	}
+	if firstBlock.BlockID != finalBlock.BlockID {
+		t.Fatalf("expected stable reasoning block id, first=%q final=%q", firstBlock.BlockID, finalBlock.BlockID)
+	}
+	if finalBlock.Payload["text"] != "Inspecting files" {
+		t.Fatalf("unexpected final thinking payload: %#v", finalBlock.Payload)
+	}
+	if combined.String() != "Done" || result.FullText != "Done" {
+		t.Fatalf("expected visible text Done, combined=%q full=%q", combined.String(), result.FullText)
 	}
 }
 

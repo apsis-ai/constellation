@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,39 @@ type PiParser struct {
 func (p *PiParser) Parse(ctx context.Context, sessionID string, responseID string, r io.Reader, ch chan<- ChanEvent) streamResult {
 	var res streamResult
 	var sb strings.Builder
+	var thinking strings.Builder
+	thinkingIndex := 0
+	thinkingBlockID := ""
+	thinkingStarted := false
+	emitThinking := func(eventType SessionStreamEventType) {
+		if strings.TrimSpace(thinking.String()) == "" {
+			return
+		}
+		if thinkingBlockID == "" {
+			thinkingIndex++
+			thinkingBlockID = newStableRationaleBlockID(responseID, "pi-thinking-"+strconv.Itoa(thinkingIndex))
+		}
+		evt := newRationaleSummaryChanEvent(responseID, thinkingBlockID, thinking.String(), eventType)
+		if evt.Type == ChanUIBlock {
+			ch <- evt
+		}
+	}
+	finishThinking := func() {
+		if strings.TrimSpace(thinking.String()) == "" {
+			thinking.Reset()
+			thinkingBlockID = ""
+			thinkingStarted = false
+			return
+		}
+		if !thinkingStarted {
+			emitThinking(SSEUIBlockStarted)
+			thinkingStarted = true
+		}
+		emitThinking(SSEUIBlockCompleted)
+		thinking.Reset()
+		thinkingBlockID = ""
+		thinkingStarted = false
+	}
 	uiScanner := newUIDirectiveScanner(responseID)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
@@ -43,7 +77,20 @@ func (p *PiParser) Parse(ctx context.Context, sessionID string, responseID strin
 		typeStr, _ := event["type"].(string)
 		switch typeStr {
 		case "message_update":
+			if delta := piThinkingDelta(event); delta != "" {
+				thinking.WriteString(delta)
+				if !thinkingStarted {
+					emitThinking(SSEUIBlockStarted)
+					thinkingStarted = true
+				} else {
+					emitThinking(SSEUIBlockDelta)
+				}
+			}
+			if piThinkingEnded(event) {
+				finishThinking()
+			}
 			if delta := piTextDelta(event); delta != "" {
+				finishThinking()
 				cleaned := p.Callbacks.ProcessTextWithStatus(sessionID, delta)
 				if cleaned != "" {
 					processVisibleText(uiScanner, cleaned, ch, &sb)
@@ -63,11 +110,13 @@ func (p *PiParser) Parse(ctx context.Context, sessionID string, responseID strin
 				p.Callbacks.TrackAction(sessionID, toolName, args)
 			}
 		case "turn_end":
+			finishThinking()
 			if usage := piTokenUsage(event); usage > 0 {
 				res.TokenUsage = usage
 			}
 		}
 	}
+	finishThinking()
 	closeVisibleText(uiScanner, ch, &sb)
 	if err := scanner.Err(); err != nil {
 		log.Printf("pi stream read error: %v", err)
@@ -86,6 +135,27 @@ func piTextDelta(event map[string]interface{}) string {
 	}
 	delta, _ := ame["delta"].(string)
 	return delta
+}
+
+func piThinkingDelta(event map[string]interface{}) string {
+	ame, _ := event["assistantMessageEvent"].(map[string]interface{})
+	if ame == nil {
+		return ""
+	}
+	if typ, _ := ame["type"].(string); typ != "thinking_delta" {
+		return ""
+	}
+	delta, _ := ame["delta"].(string)
+	return delta
+}
+
+func piThinkingEnded(event map[string]interface{}) bool {
+	ame, _ := event["assistantMessageEvent"].(map[string]interface{})
+	if ame == nil {
+		return false
+	}
+	typ, _ := ame["type"].(string)
+	return typ == "thinking_end"
 }
 
 func piTokenUsage(event map[string]interface{}) int {

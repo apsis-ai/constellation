@@ -127,6 +127,39 @@ func newUIDirectiveScanner(messageID string) *uiDirectiveScanner {
 	return &uiDirectiveScanner{messageID: messageID}
 }
 
+func newRationaleSummaryBlock(messageID, text string) UIBlockEvent {
+	return newRationaleSummaryBlockWithID(messageID, newStableRationaleBlockID(messageID, strings.TrimSpace(text)), text)
+}
+
+func newStableRationaleBlockID(messageID, seed string) string {
+	sum := sha1.Sum([]byte(messageID + ":rationale:" + seed))
+	return "rationale_" + hex.EncodeToString(sum[:])[:12]
+}
+
+func newRationaleSummaryBlockWithID(messageID, blockID, text string) UIBlockEvent {
+	trimmed := strings.TrimSpace(text)
+	return UIBlockEvent{
+		ProtocolVersion: "perigee.ui-events.v1",
+		MessageID:       messageID,
+		BlockID:         blockID,
+		Kind:            "card",
+		Schema:          "rationale_summary",
+		SchemaVersion:   1,
+		Payload: UIBlockPayload{
+			"text": trimmed,
+		},
+	}
+}
+
+func newRationaleSummaryChanEvent(messageID, blockID, text string, eventType SessionStreamEventType) ChanEvent {
+	block := newRationaleSummaryBlockWithID(messageID, blockID, text)
+	jsonBytes, err := json.Marshal(block)
+	if err != nil {
+		return ChanEvent{}
+	}
+	return ChanEvent{Type: ChanUIBlock, JSON: string(jsonBytes), UIEventType: eventType}
+}
+
 func (s *uiDirectiveScanner) Process(text string, ch chan<- ChanEvent) string {
 	s.buffer += text
 	return s.flush(ch, false)
