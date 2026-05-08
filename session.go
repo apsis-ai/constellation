@@ -24,6 +24,8 @@ type Config struct {
 	HandoffDir string
 	// RingBufferSize is the per-session SSE ring buffer capacity (default 1024).
 	RingBufferSize int
+	// AgentContext provides embedder-specific instructions for spawned agents. Optional.
+	AgentContext AgentContextProvider
 	// MCPProvider generates MCP config for agent subprocesses. Optional.
 	MCPProvider MCPConfigProvider
 	// ToolExec handles tool calls from HTTP-based agents. Optional.

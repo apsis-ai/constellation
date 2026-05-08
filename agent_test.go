@@ -1,6 +1,8 @@
 package mux
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -26,6 +28,39 @@ func TestBuildAttachmentPrompt_WithAttachments(t *testing.T) {
 	}
 	if !strings.Contains(result, "test prompt") {
 		t.Error("expected original prompt in result")
+	}
+}
+
+func TestBuildAgentPrompt_WithRuntimeContext(t *testing.T) {
+	// Arrange
+	context := "Use Perigee UI blocks when helpful."
+	userPrompt := "Ask me with choices"
+
+	// Act
+	result := buildAgentPrompt(userPrompt, context)
+
+	// Assert
+	if !strings.Contains(result, "Runtime context:") {
+		t.Fatalf("expected runtime context header, got %q", result)
+	}
+	if !strings.Contains(result, context) {
+		t.Fatalf("expected context body, got %q", result)
+	}
+	if !strings.Contains(result, "User request:\n"+userPrompt) {
+		t.Fatalf("expected original prompt under user request, got %q", result)
+	}
+}
+
+func TestBuildAgentPrompt_WithoutRuntimeContextLeavesPromptUnchanged(t *testing.T) {
+	// Arrange
+	userPrompt := "plain request"
+
+	// Act
+	result := buildAgentPrompt(userPrompt, "  ")
+
+	// Assert
+	if result != userPrompt {
+		t.Fatalf("expected unchanged prompt, got %q", result)
 	}
 }
 
@@ -135,6 +170,85 @@ func TestSend_ProviderRegistryHasAllBuiltins(t *testing.T) {
 		if !ok {
 			t.Errorf("expected builtin provider %q in registry", id)
 		}
+	}
+}
+
+type recordingRuntimeProvider struct {
+	request AgentRuntimeRequest
+}
+
+func (p *recordingRuntimeProvider) ContextForAgent(sessionID, providerID string) string {
+	return "legacy context should not be used when runtime provider exists"
+}
+
+func (p *recordingRuntimeProvider) PrepareAgentRuntime(req AgentRuntimeRequest) (*AgentRuntime, error) {
+	p.request = req
+	return &AgentRuntime{
+		Context: "Injected runtime context from Perigee",
+		Env: map[string]string{
+			"PERIGEE_RUNTIME_DIR": "/tmp/perigee-runtime-test",
+		},
+	}, nil
+}
+
+func TestSend_PreparesAgentRuntimeWithWorkingDirectory(t *testing.T) {
+	// Arrange
+	binDir := t.TempDir()
+	argsPath := filepath.Join(binDir, "args.txt")
+	envPath := filepath.Join(binDir, "env.txt")
+	fakeBin := filepath.Join(binDir, "fake-agent")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsPath + "\"\nprintf '%s\\n' \"$PERIGEE_RUNTIME_DIR\" > \"" + envPath + "\"\necho done\n"
+	if err := os.WriteFile(fakeBin, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake agent: %v", err)
+	}
+	projectDir := t.TempDir()
+	runtime := &recordingRuntimeProvider{}
+	cfg := tempConfig(t)
+	cfg.AgentContext = runtime
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer m.Close()
+	if err := m.providers.Register(CLIProviderConfig{ProviderID: "fake", Name: "Fake", Binary: fakeBin, ParserType: "other"}); err != nil {
+		t.Fatalf("register fake provider: %v", err)
+	}
+
+	// Act
+	result, err := m.Send(SendRequest{SessionID: "runtime-session", ProviderID: "fake", Prompt: "Tell me what you see", WorkingDirectory: projectDir})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	for range result.Events {
+	}
+
+	// Assert
+	if runtime.request.SessionID != "runtime-session" {
+		t.Fatalf("expected runtime session id, got %q", runtime.request.SessionID)
+	}
+	if runtime.request.ProviderID != "fake" {
+		t.Fatalf("expected runtime provider id, got %q", runtime.request.ProviderID)
+	}
+	if runtime.request.WorkingDirectory != projectDir {
+		t.Fatalf("expected runtime working directory %q, got %q", projectDir, runtime.request.WorkingDirectory)
+	}
+	argsBytes, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(argsBytes)
+	if !strings.Contains(args, "Runtime context:\nInjected runtime context from Perigee") {
+		t.Fatalf("expected runtime context in prompt args, got %q", args)
+	}
+	if !strings.Contains(args, "User request:\nTell me what you see") {
+		t.Fatalf("expected original prompt in prompt args, got %q", args)
+	}
+	envBytes, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("read env: %v", err)
+	}
+	if strings.TrimSpace(string(envBytes)) != "/tmp/perigee-runtime-test" {
+		t.Fatalf("expected runtime env to reach process, got %q", string(envBytes))
 	}
 }
 

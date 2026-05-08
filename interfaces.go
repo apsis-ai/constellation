@@ -1,5 +1,37 @@
 package mux
 
+// AgentContextProvider provides per-runtime instructions that are prepended to agent prompts.
+// Embedders can use this for product-specific capabilities without making them global
+// to every constellation consumer.
+type AgentContextProvider interface {
+	// ContextForAgent returns contextual instructions for this session/provider.
+	// Return an empty string to leave the prompt unchanged.
+	ContextForAgent(sessionID, providerID string) string
+}
+
+// AgentRuntimeRequest describes the concrete subprocess launch context.
+// Embedders can use this to generate per-session files, injected skills, and
+// environment variables after the session working directory is known.
+type AgentRuntimeRequest struct {
+	SessionID        string
+	ProviderID       string
+	WorkingDirectory string
+}
+
+// AgentRuntime is merged into the agent launch. Context is prepended to the
+// prompt, and Env entries are merged into the subprocess environment.
+type AgentRuntime struct {
+	Context string
+	Env     map[string]string
+}
+
+// AgentRuntimeProvider is an optional extension implemented by AgentContextProvider.
+// It supersedes ContextForAgent when available because it receives the resolved
+// working directory and can prepare runtime assets before the subprocess starts.
+type AgentRuntimeProvider interface {
+	PrepareAgentRuntime(req AgentRuntimeRequest) (*AgentRuntime, error)
+}
+
 // MCPConfigProvider generates MCP configuration for agent subprocesses.
 // The library calls this before spawning an agent to get the MCP JSON config.
 type MCPConfigProvider interface {

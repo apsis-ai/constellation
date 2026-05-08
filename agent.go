@@ -32,6 +32,14 @@ func parseStatusMarker(text string) (cleaned string, status string) {
 	return cleaned, status
 }
 
+func buildAgentPrompt(prompt string, runtimeContext string) string {
+	runtimeContext = strings.TrimSpace(runtimeContext)
+	if runtimeContext == "" {
+		return prompt
+	}
+	return fmt.Sprintf("Runtime context:\n%s\n\nUser request:\n%s", runtimeContext, prompt)
+}
+
 // Send sends a prompt to an agent, spawning a subprocess.
 func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	sessionID := req.SessionID
@@ -133,6 +141,26 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 		conversationID = ""
 	}
 
+	var runtimeEnv map[string]string
+	if m.config.AgentContext != nil {
+		if runtimeProvider, ok := m.config.AgentContext.(AgentRuntimeProvider); ok {
+			runtime, err := runtimeProvider.PrepareAgentRuntime(AgentRuntimeRequest{
+				SessionID:        sessionID,
+				ProviderID:       providerID,
+				WorkingDirectory: workingDirectory,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("prepare agent runtime: %w", err)
+			}
+			if runtime != nil {
+				prompt = buildAgentPrompt(prompt, runtime.Context)
+				runtimeEnv = runtime.Env
+			}
+		} else {
+			prompt = buildAgentPrompt(prompt, m.config.AgentContext.ContextForAgent(sessionID, providerID))
+		}
+	}
+
 	m.setUserMessage(sessionID, req.Prompt)
 
 	runtimeProvider, validationErrs := m.runtimeConfigForProvider(context.Background(), providerID)
@@ -167,6 +195,9 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 		env = m.config.AgentEnv()
 	} else {
 		env = os.Environ()
+	}
+	if len(runtimeEnv) > 0 {
+		env = mergeEnv(env, runtimeEnv)
 	}
 
 	provReq := ProviderRequest{
