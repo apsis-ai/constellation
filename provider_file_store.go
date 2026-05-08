@@ -128,7 +128,7 @@ func mergeProviderFileBuiltin(existing, builtin ProviderFileConfig) ProviderFile
 	if merged.Execution.PromptSeparator == nil {
 		merged.Execution.PromptSeparator = builtin.Execution.PromptSeparator
 	}
-	if merged.Execution.DefaultModelID == "" {
+	if merged.Execution.DefaultModelID == "" || shouldReplaceBuiltinDefaultModel(merged.ID, merged.Execution.DefaultModelID) {
 		merged.Execution.DefaultModelID = builtin.Execution.DefaultModelID
 	}
 	if merged.Execution.AttachmentMode == "" {
@@ -140,7 +140,7 @@ func mergeProviderFileBuiltin(existing, builtin ProviderFileConfig) ProviderFile
 	if len(merged.Execution.EnvVars) == 0 {
 		merged.Execution.EnvVars = builtin.Execution.EnvVars
 	}
-	if len(merged.Models) == 0 {
+	if len(merged.Models) == 0 || shouldReplaceBuiltinModels(merged.ID, merged.Models) {
 		merged.Models = builtin.Models
 	}
 	if len(merged.Efforts) == 0 {
@@ -166,7 +166,7 @@ func mergeProviderFileBuiltin(existing, builtin ProviderFileConfig) ProviderFile
 		for fi, field := range section.Fields {
 			fieldKeys[field.Key] = true
 			if builtinField, ok := builtinFields[field.Key]; ok {
-				merged.Sections[si].Fields[fi] = mergeProviderFieldBuiltin(field, builtinField)
+				merged.Sections[si].Fields[fi] = mergeProviderFieldBuiltin(merged.ID, field, builtinField)
 			}
 		}
 	}
@@ -189,7 +189,7 @@ func mergeProviderFileBuiltin(existing, builtin ProviderFileConfig) ProviderFile
 	return merged
 }
 
-func mergeProviderFieldBuiltin(existing, builtin ConfigField) ConfigField {
+func mergeProviderFieldBuiltin(providerID string, existing, builtin ConfigField) ConfigField {
 	merged := existing
 	if merged.Type == "" {
 		merged.Type = builtin.Type
@@ -197,7 +197,10 @@ func mergeProviderFieldBuiltin(existing, builtin ConfigField) ConfigField {
 	if merged.Label == "" {
 		merged.Label = builtin.Label
 	}
-	if len(merged.Options) == 0 {
+	if shouldReplaceBuiltinFieldDefault(providerID, merged.Key, merged.Default) {
+		merged.Default = builtin.Default
+	}
+	if len(merged.Options) == 0 || shouldReplaceBuiltinFieldOptions(providerID, merged.Key, merged.Options) {
 		merged.Options = builtin.Options
 	}
 	if merged.OptionsSource == nil {
@@ -210,6 +213,46 @@ func mergeProviderFieldBuiltin(existing, builtin ConfigField) ConfigField {
 		merged.Mapping = builtin.Mapping
 	}
 	return merged
+}
+
+func shouldReplaceBuiltinDefaultModel(providerID string, current string) bool {
+	return providerID == "pi" && current == piLegacyDefaultModelID
+}
+
+func shouldReplaceBuiltinModels(providerID string, models []string) bool {
+	return providerID == "pi" && sameStringSlice(models, []string{piLegacyDefaultModelID, "openai/gpt-5.2", "google/gemini-3-pro"})
+}
+
+func shouldReplaceBuiltinFieldDefault(providerID string, fieldKey string, current any) bool {
+	if providerID != "pi" || fieldKey != "model" {
+		return false
+	}
+	value, ok := current.(string)
+	return current == nil || (ok && (value == "" || value == piLegacyDefaultModelID))
+}
+
+func shouldReplaceBuiltinFieldOptions(providerID string, fieldKey string, options []ConfigOption) bool {
+	return providerID == "pi" && fieldKey == "model" && sameStringSlice(configOptionValues(options), []string{piLegacyDefaultModelID, "openai/gpt-5.2", "google/gemini-3-pro"})
+}
+
+func configOptionValues(options []ConfigOption) []string {
+	values := make([]string, 0, len(options))
+	for _, option := range options {
+		values = append(values, option.Value)
+	}
+	return values
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func ProviderFileConfigFromCLI(cfg CLIProviderConfig) ProviderFileConfig {

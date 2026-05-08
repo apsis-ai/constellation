@@ -107,7 +107,7 @@ func TestCLIProvider_BuildArgs_Pi(t *testing.T) {
 		Prompt:         "write docs",
 		ConversationID: "pi-session-123",
 		RuntimeConfig:  &runtimeConfig,
-		ConfigValues:   map[string]any{"model": "openai/gpt-5.2", "effort": "high"},
+		ConfigValues:   map[string]any{"model": "openai-codex/gpt-5.5", "effort": "high"},
 	}
 
 	args := p.BuildArgs(req)
@@ -116,8 +116,11 @@ func TestCLIProvider_BuildArgs_Pi(t *testing.T) {
 	if !strings.Contains(joined, "--mode json") {
 		t.Errorf("expected --mode json, got: %s", joined)
 	}
-	if !strings.Contains(joined, "--model openai/gpt-5.2") {
-		t.Errorf("expected --model openai/gpt-5.2, got: %s", joined)
+	if !strings.Contains(joined, "--print") {
+		t.Errorf("expected --print for non-interactive Pi execution, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--model openai-codex/gpt-5.5") {
+		t.Errorf("expected --model openai-codex/gpt-5.5, got: %s", joined)
 	}
 	if !strings.Contains(joined, "--thinking high") {
 		t.Errorf("expected --thinking high, got: %s", joined)

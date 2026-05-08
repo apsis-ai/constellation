@@ -185,6 +185,110 @@ func TestProviderFileConfigFromCLI_CodexExposesEffortOptions(t *testing.T) {
 	}
 }
 
+func TestBuiltinPiDefaultModelUsesOpenAICodexGPT55(t *testing.T) {
+	// Arrange
+	var pi CLIProviderConfig
+
+	// Act
+	for _, cfg := range BuiltinCLIConfigs() {
+		if cfg.ProviderID == "pi" {
+			pi = cfg
+			break
+		}
+	}
+
+	// Assert
+	if pi.ProviderID == "" {
+		t.Fatal("expected pi builtin config")
+	}
+	if pi.DefaultModelID != "openai-codex/gpt-5.5" {
+		t.Fatalf("expected Pi default model openai-codex/gpt-5.5, got %q", pi.DefaultModelID)
+	}
+	if len(pi.Models) == 0 || pi.Models[0] != "openai-codex/gpt-5.5" {
+		t.Fatalf("expected Pi first fallback model to be openai-codex/gpt-5.5, got %#v", pi.Models)
+	}
+}
+
+func TestProviderFileStoreSeedBuiltinsUpdatesLegacyPiDefaultModel(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	store := NewProviderFileStore(dir)
+	legacyModels := []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5.2", "google/gemini-3-pro"}
+	legacyPi := ProviderFileConfig{
+		ID:         "pi",
+		Name:       "Pi",
+		Binary:     "pi",
+		ParserType: "pi",
+		Enabled:    true,
+		Execution: ProviderExecutionConfig{
+			DefaultModelID: "anthropic/claude-sonnet-4-5",
+			ModelFlag:      "--model",
+		},
+		Sections: []ConfigSection{{
+			ID:    "model",
+			Label: "Model",
+			Fields: []ConfigField{{
+				Key:     "model",
+				Type:    FieldTypeSelect,
+				Label:   "Model",
+				Default: "anthropic/claude-sonnet-4-5",
+				Options: configOptionsFromStrings(legacyModels),
+			}},
+		}},
+		Models: legacyModels,
+	}
+	data, err := json.Marshal(legacyPi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pi.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := store.SeedBuiltins(context.Background(), BuiltinCLIConfigs()); err != nil {
+		t.Fatal(err)
+	}
+	configs, errs, err := store.Load(context.Background())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("unexpected validation errors: %#v", errs)
+	}
+	var pi ProviderFileConfig
+	for _, cfg := range configs {
+		if cfg.ID == "pi" {
+			pi = cfg
+			break
+		}
+	}
+	if pi.Execution.DefaultModelID != "openai-codex/gpt-5.5" {
+		t.Fatalf("expected persisted Pi execution default to update, got %q", pi.Execution.DefaultModelID)
+	}
+	field := findField(configs, "pi", "model")
+	if field == nil {
+		t.Fatal("expected Pi model field")
+	}
+	if field.Default != "openai-codex/gpt-5.5" {
+		t.Fatalf("expected persisted Pi field default to update, got %#v", field.Default)
+	}
+	if !configOptionsContain(field.Options, "openai-codex/gpt-5.5") {
+		t.Fatalf("expected persisted Pi model options to include openai-codex/gpt-5.5, got %#v", field.Options)
+	}
+}
+
+func configOptionsContain(options []ConfigOption, value string) bool {
+	for _, option := range options {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
 func findField(configs []ProviderFileConfig, providerID string, fieldKey string) *ConfigField {
 	for ci := range configs {
 		if configs[ci].ID != providerID {

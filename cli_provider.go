@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	piLegacyDefaultModelID = "anthropic/claude-sonnet-4-5"
+	piDefaultModelID       = "openai-codex/gpt-5.5"
+)
+
 // ModelDiscoveryConfig configures how a provider discovers available models dynamically.
 type ModelDiscoveryConfig struct {
 	// Command args appended to the provider binary for CLI-based discovery.
@@ -617,16 +622,16 @@ func BuiltinCLIConfigs() []CLIProviderConfig {
 			ProviderID:      "pi",
 			Name:            "Pi",
 			Binary:          "pi",
-			BaseArgs:        []string{"--mode", "json"},
+			BaseArgs:        []string{"--mode", "json", "--print"},
 			PromptSeparator: &noPromptSeparator,
 			ParserType:      "pi",
 			SupportsResume:  true,
 			ResumeFlag:      "--session",
 			ModelFlag:       "--model",
 			EffortFlag:      "--thinking",
-			DefaultModelID:  "anthropic/claude-sonnet-4-5",
+			DefaultModelID:  piDefaultModelID,
 			AttachmentMode:  "prompt",
-			Models:          []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5.2", "google/gemini-3-pro"},
+			Models:          []string{piDefaultModelID, "openai-codex/gpt-5.2", "google/gemini-3-pro"},
 			Efforts:         []string{"off", "minimal", "low", "medium", "high", "xhigh"},
 			ModelDiscovery: &ModelDiscoveryConfig{
 				Command: []string{"--list-models"},
