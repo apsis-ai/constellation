@@ -94,7 +94,7 @@ Agent processes are spawned with process group isolation:
 
 ## Environment
 
-By default, spawned agent processes inherit `os.Environ()`. Environment isolation is opt-in through `Config.AgentEnv` or an embedder-provided environment provider. `DefaultEnvProvider.AgentEnv()` strips Claude Code-specific variables and supplies isolated `CODEX_HOME` and `OPENCODE_CONFIG_DIR`; embedders must wire it into config for that behavior.
+By default, spawned agent processes inherit `os.Environ()`. Environment isolation is opt-in through `Config.AgentEnv` or an embedder-provided environment provider. `DefaultEnvProvider.AgentEnv()` strips Claude Code-specific variables and supplies isolated `CODEX_HOME` and `OPENCODE_CONFIG_DIR`; embedders must wire it into config for that behavior. `SendRequest.Env` merges additional environment variables into a single agent call.
 
 ## Conversation Resume
 

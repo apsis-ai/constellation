@@ -53,7 +53,7 @@ type AgentRuntimeProvider interface {
 }
 ```
 
-`AgentRuntime.Env` entries are merged into the subprocess environment.
+`AgentRuntime.Env` entries are merged into the subprocess environment. `SendRequest.Env` can add per-call environment variables for one launch.
 
 ### MCPConfigProvider
 

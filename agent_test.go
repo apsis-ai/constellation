@@ -191,6 +191,48 @@ func (p *recordingRuntimeProvider) PrepareAgentRuntime(req AgentRuntimeRequest) 
 	}, nil
 }
 
+func TestSend_MergesPerCallEnvIntoAgentProcess(t *testing.T) {
+	// Arrange
+	binDir := t.TempDir()
+	envPath := filepath.Join(binDir, "env.txt")
+	fakeBin := filepath.Join(binDir, "fake-agent")
+	script := "#!/bin/sh\nprintf '%s\n' \"$PER_CALL_ENV\" > \"" + envPath + "\"\necho done\n"
+	if err := os.WriteFile(fakeBin, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake agent: %v", err)
+	}
+	cfg := tempConfig(t)
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer m.Close()
+	if err := m.providers.Register(CLIProviderConfig{ProviderID: "fake-env", Name: "Fake Env", Binary: fakeBin, ParserType: "other"}); err != nil {
+		t.Fatalf("register fake provider: %v", err)
+	}
+
+	// Act
+	result, err := m.Send(SendRequest{
+		SessionID:  "env-session",
+		ProviderID: "fake-env",
+		Prompt:     "check env",
+		Env:        map[string]string{"PER_CALL_ENV": "from-send-request"},
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	for range result.Events {
+	}
+
+	// Assert
+	envBytes, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("read env: %v", err)
+	}
+	if strings.TrimSpace(string(envBytes)) != "from-send-request" {
+		t.Fatalf("expected per-call env to reach process, got %q", string(envBytes))
+	}
+}
+
 func TestSend_PreparesAgentRuntimeWithWorkingDirectory(t *testing.T) {
 	// Arrange
 	binDir := t.TempDir()

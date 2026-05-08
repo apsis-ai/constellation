@@ -46,6 +46,7 @@ Creates/loads the session, persists the user message, resolves attachments and w
 | `MessageID` | `string` | Optional caller-provided user message ID |
 | `ResponseID` | `string` | Optional caller-provided response message ID |
 | `WorkingDirectory` | `string` | Optional per-request working directory override |
+| `Env` | `map[string]string` | Optional per-request environment variables merged into the spawned provider process |
 
 ### SendResult
 

@@ -191,6 +191,8 @@ type SendRequest struct {
 	MessageID        string
 	ResponseID       string
 	WorkingDirectory string
+	// Env contains per-call environment variables merged into the spawned agent process.
+	Env map[string]string
 }
 
 // SendResult is returned from Manager.Send.

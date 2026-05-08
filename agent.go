@@ -199,6 +199,9 @@ func (m *Manager) Send(req SendRequest) (*SendResult, error) {
 	if len(runtimeEnv) > 0 {
 		env = mergeEnv(env, runtimeEnv)
 	}
+	if len(req.Env) > 0 {
+		env = mergeEnv(env, req.Env)
+	}
 
 	provReq := ProviderRequest{
 		SessionID:        sessionID,
