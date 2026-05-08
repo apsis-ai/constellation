@@ -47,6 +47,8 @@ for event := range events {
 3. replay events after `lastSeq`, when available
 4. `fullFlush` flag when the client should reload state instead of applying replay only
 
+`SubscribeSessionWithSeq(sessionID string, lastSeq uint64)` returns the same values plus the session sequence captured while the subscriber was attached. HTTP handlers that perform a full state flush can use that snapshot as the `flush_done` high-water mark; events with higher sequence numbers are already queued on the live channel.
+
 ## Ring Buffer & Reconnection
 
 Each session maintains a fixed-size ring buffer with monotonic sequence numbers.

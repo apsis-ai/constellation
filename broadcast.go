@@ -216,15 +216,24 @@ func (b *SessionBroadcaster) getOrCreateSession(sessionID string) *sessionFanout
 
 // SubscribeSession subscribes to a specific session's event stream.
 func (b *SessionBroadcaster) SubscribeSession(sessionID string, lastSeq uint64) (events <-chan SessionStreamEvent, done chan struct{}, replay []SessionStreamEvent, fullFlush bool) {
+	events, done, replay, fullFlush, _ = b.SubscribeSessionWithSeq(sessionID, lastSeq)
+	return events, done, replay, fullFlush
+}
+
+// SubscribeSessionWithSeq subscribes and returns the session sequence at the
+// instant the subscriber was attached. Full-flush callers use the snapshot as a
+// safe high-water mark: events above it are already queued on the live channel.
+func (b *SessionBroadcaster) SubscribeSessionWithSeq(sessionID string, lastSeq uint64) (events <-chan SessionStreamEvent, done chan struct{}, replay []SessionStreamEvent, fullFlush bool, currentSeq uint64) {
 	if b == nil {
 		ch := make(chan SessionStreamEvent)
 		d := make(chan struct{})
 		close(ch)
 		close(d)
-		return ch, d, nil, false
+		return ch, d, nil, false, 0
 	}
 	b.mu.Lock()
 	f := b.getOrCreateSession(sessionID)
+	currentSeq = f.seq
 	c := &sessionSSEClient{
 		ch:   make(chan SessionStreamEvent, 64),
 		done: make(chan struct{}),
@@ -251,7 +260,7 @@ func (b *SessionBroadcaster) SubscribeSession(sessionID string, lastSeq uint64) 
 		delete(f.clients, c)
 		b.mu.Unlock()
 	}()
-	return c.ch, c.done, replay, fullFlush
+	return c.ch, c.done, replay, fullFlush, currentSeq
 }
 
 // SubscribeNotify subscribes to global notification events.

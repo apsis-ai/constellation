@@ -121,10 +121,11 @@ func (m *Manager) GetBroadcaster() *SessionBroadcaster
 
 ```go
 func (b *SessionBroadcaster) SubscribeSession(sessionID string, lastSeq uint64) (<-chan SessionStreamEvent, chan struct{}, []SessionStreamEvent, bool)
+func (b *SessionBroadcaster) SubscribeSessionWithSeq(sessionID string, lastSeq uint64) (<-chan SessionStreamEvent, chan struct{}, []SessionStreamEvent, bool, uint64)
 func (b *SessionBroadcaster) SubscribeNotify() (<-chan NotifyEvent, chan struct{})
 ```
 
-`SubscribeSession` returns live events, a done channel to close for unsubscribe, replay events, and a `fullFlush` flag. `lastSeq == 0` requests a full flush instead of a delta replay.
+`SubscribeSession` returns live events, a done channel to close for unsubscribe, replay events, and a `fullFlush` flag. `lastSeq == 0` requests a full flush instead of a delta replay. `SubscribeSessionWithSeq` additionally returns the session sequence captured when the subscriber was attached, for callers that need a full-flush high-water mark.
 
 ## Registry
 
