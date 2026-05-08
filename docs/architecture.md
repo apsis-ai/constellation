@@ -2,168 +2,141 @@
 
 ## Overview
 
-Constellation is built around a central `Manager` that coordinates session lifecycle, agent subprocess management, event broadcasting, and queue processing. All state is persisted in SQLite with per-session JSONL conversation logs. The current compatibility binary and module path remain `agents-mux`.
+Constellation is built around a central `Manager` that coordinates session lifecycle, provider subprocess management, event broadcasting, queue processing, and persistence. State is persisted in SQLite with per-session JSONL conversation logs. The Go module path is `github.com/apsis-ai/constellation`; the compatibility CLI binary name remains `agents-mux`.
 
 ## Core Components
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                     Manager                           │
-│  ┌──────────┐  ┌──────────┐  ┌────────────────────┐  │
-│  │ SQLite DB│  │ Processes│  │ SessionBroadcaster │  │
-│  └──────────┘  └──────────┘  └────────────────────┘  │
-│  ┌──────────┐  ┌──────────┐  ┌────────────────────┐  │
-│  │  Queue   │  │ Lifecycle│  │   Attachments      │  │
-│  └──────────┘  └──────────┘  └────────────────────┘  │
-└──────────────────────────────────────────────────────┘
-         │                              │
-    ┌────┴────┐                   ┌─────┴──────┐
-    │  Agent  │                   │ SSE Client │
-    │ Process │                   │ Subscriber │
-    └─────────┘                   └────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                         Manager                             │
+│  ┌──────────┐  ┌──────────┐  ┌───────────────────────────┐ │
+│  │ SQLite DB│  │ Processes│  │ SessionBroadcaster         │ │
+│  └──────────┘  └──────────┘  └───────────────────────────┘ │
+│  ┌──────────┐  ┌──────────┐  ┌───────────────────────────┐ │
+│  │ Queue    │  │ Lifecycle│  │ ProviderRegistry          │ │
+│  └──────────┘  └──────────┘  └───────────────────────────┘ │
+└────────────────────────────────────────────────────────────┘
+        │                         │
+        ▼                         ▼
+ Provider subprocess          SSE/notify subscribers
 ```
 
 ### Manager (`session.go`)
 
-Central coordinator. Owns the SQLite database, broadcaster, process tracking maps, and idle timers. All public API methods are on `Manager`.
+Owns the SQLite database, broadcaster, provider registry, parser registry, process tracking maps, idle timers, session directories, and optional embedder interfaces.
 
-### Agent Spawner (`agent.go`)
+### Provider Registry (`provider_registry.go`)
 
-Spawns agent CLI processes with:
-- Process group isolation (`Setpgid: true`) for clean MCP child cleanup
-- Environment isolation to prevent config leakage between agents
-- Agent-specific command construction (`buildClaudeCommand`, `buildCodexCommand`, etc.)
-- NDJSON stdout streaming via agent-specific parsers
+DB-backed registry of provider configs. Built-ins are seeded to provider JSON files, loaded, validated, and synchronized into SQLite/cache. Enabled CLI providers are used by `Send()`.
 
-### Stream Parsers (`parser.go`)
+### Provider Spawner (`agent.go`, `cli_provider.go`)
 
-Each supported agent has a dedicated NDJSON parser that normalizes output into `ChanEvent` values:
-- **Claude**: Parses `assistant` events (text/tool_use blocks) and `result` events
-- **Codex**: Parses `item.completed`, `item.delta`, and `turn.completed` events
-- **OpenCode**: Parses `text`, `tool_use`, `step_finish`, and `error` events
-- **Pi**: Parses `message_update`, `tool_execution_*`, `turn_end`, and session header events
-- **Cursor**: Parses `assistant`, `tool_call`, `result`, and `error` events
+Spawns provider CLI processes with:
+
+- process group isolation (`Setpgid: true`) for child cleanup
+- provider-specific command construction from `CLIProviderConfig`
+- optional runtime context/env and MCP config
+- working directory resolution and validation
+- normalized parser callbacks
+
+Environment isolation is optional: by default subprocesses inherit `os.Environ()` unless `Config.AgentEnv` supplies a custom environment such as `DefaultEnvProvider.AgentEnv()`.
+
+### Stream Parsers (`parser_*.go`)
+
+Parsers normalize CLI output into `ChanEvent` values:
+
+- **Claude**: `assistant` / `result`
+- **Codex**: `item.completed`, `item.delta`, `turn.completed`
+- **OpenCode**: `text`, `tool_use`, `step_finish`, `error`
+- **Pi**: `message_update`, `tool_execution_*`, `turn_end`, session header events; `thinking_delta` updates become phased `rationale_summary` UI blocks
+- **Cursor-compatible Agent**: `assistant`, `tool_call`, `result`, `error`; `thinking` events become phased `rationale_summary` UI blocks
 
 ### SessionBroadcaster (`broadcast.go`)
 
-Fans out events to SSE subscribers using a per-session ring buffer for reconnection support. Supports two subscription types:
-- **Session subscriptions**: Per-session event stream with sequence-based delta replay
-- **Notify subscriptions**: Global stream for session creation/deletion/status changes
+Fans out per-session events with sequenced ring buffers and global notify events. `lastSeq == 0` requests a full flush; gaps also request full flush.
 
 ### Queue System (`queue.go`)
 
-Position-based follow-up queue with:
-- Atomic pop operations via database transactions
-- Per-session pause/resume control
-- Automatic processing after agent completion
-- Support for reordering, clearing, and status tracking
+Position-based follow-up queue with 1-based pending positions, transactional item claiming, pause/resume, reorder, update, delete, and status tracking. Queue processing sends stored item text through `Send()`; it does not transcribe audio during processing.
 
-### Lifecycle Manager (`lifecycle.go`)
+### Lifecycle (`lifecycle.go`, `agent.go`)
 
-Handles:
-- **Idle timeouts**: Configurable timer triggers handoff when session is idle
-- **Handoff**: Persists session state to markdown files on token exhaustion (>50% usage) or screenshot limit (20+)
-- **Stop/StopAll**: Kills process groups, cleans up orphaned PIDs from database
+Handles stop/stop-all, process group cleanup, screenshot tracking, idle timers, and handoff. Automatic handoff triggers call a configured `HandoffHandler` when present and then clear conversation state. Public `HandleHandoff(sessionID, summary, currentState, pendingTasks)` writes markdown to `HandoffDir`.
 
 ### Conversation Persistence (`conversation.go`)
 
 Dual storage:
-- **SQLite `messages` table**: Simple role/content pairs for quick queries
-- **JSONL files**: Rich `ConversationEntry` records with tool calls, attachments, and metadata
 
-### Attachment Manager (`attachment.go`)
+- SQLite `messages` table for indexed message lookup
+- JSONL `conversation.jsonl` for rich entries with message IDs, tool calls, attachments, and metadata
 
-File upload with:
-- MIME type validation
-- Size limits
-- Per-session atomic ID counters
-- Resolution from ID to full `AttachmentRef` with path
+### Attachments (`attachment.go`)
+
+Uploads are saved under the session attachment directory. Validation covers upload count, filename extension, and size. Attachment type is derived from filename extension; MIME validation is not performed by the manager.
 
 ## Data Flow
 
 ### Prompt Execution
 
 ```
-User Prompt
+SendRequest
     │
     ▼
 Manager.Send()
-    │
-    ├─ Persist message to DB + JSONL
-    ├─ Resolve attachments
-    ├─ Build context (handoff file or last 20 messages)
-    ├─ Construct agent command with flags
-    ├─ Spawn subprocess with process group
-    │
+    ├─ default/generate session, provider, user message, response IDs
+    ├─ persist user message to DB + JSONL
+    ├─ resolve working directory and attachments
+    ├─ validate provider ConfigValues
+    ├─ look up CLI provider in ProviderRegistry
+    ├─ build command args/env/cwd
+    ├─ spawn subprocess with process group
     ▼
-Agent Process (stdout NDJSON)
-    │
+Provider stdout parser
+    ├─ ChanText / ChanAction / ChanAskUser / ChanUIBlock
+    └─ stream result metadata
     ▼
-Stream Parser
-    │
-    ├─ ChanText  ──► Broadcaster ──► SSE Subscribers
-    ├─ ChanAction ──► Broadcaster ──► SSE Subscribers
-    └─ ChanAskUser ──► Broadcaster ──► SSE Subscribers
-    │
-    ▼
-Process Completion
-    │
-    ├─ Persist assistant message
-    ├─ Update conversation_id + token_usage
-    ├─ Check handoff triggers (token usage, screenshots)
-    └─ Process next queue item
+Completion
+    ├─ persist assistant message
+    ├─ update conversation_id, provider/config metadata, token usage
+    ├─ release I/O lock and update status
+    ├─ trigger optional handoff if needed
+    └─ process next queue item
 ```
 
-### SSE Reconnection
+### Reconnection
 
 ```
 Client connects with lastSeq
     │
-    ▼
-RingBuffer.EventsAfter(lastSeq)
-    │
-    ├─ Events found ──► Send delta replay
-    └─ Gap detected  ──► Signal full flush needed
+    ├─ lastSeq == 0 ───────► full flush
+    ├─ events in buffer ───► replay delta then live stream
+    └─ gap/restart ────────► full flush
 ```
 
-## Database Schema
+## Database Schema Highlights
 
-### sessions
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT PK | UUID |
-| status | TEXT | active/idle/waiting |
-| conversation_id | TEXT | Agent's conversation ID for resume |
-| token_usage | INTEGER | Last known token count |
-| title | TEXT | Auto-generated session title |
-| last_agent | TEXT | Last agent used (claude/codex/etc.) |
-| pid | INTEGER | Active process PID (0 if idle) |
-| screenshot_count | INTEGER | Handoff trigger counter |
+### `sessions`
 
-### messages
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER PK | Auto-increment |
-| session_id | TEXT | Foreign key to sessions |
-| role | TEXT | user/assistant |
-| content | TEXT | Message text |
+Includes `id`, `status`, `last_active_at`, `conversation_id`, `token_usage`, `screenshot_count`, `title`, `last_agent`, `last_agent_sub`, `last_model`, `last_effort`, `provider_id`, `config_values_json`, `pid`, and `working_directory`.
 
-### follow_up_queue
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT PK | UUID |
-| session_id | TEXT | Foreign key to sessions |
-| text | TEXT | Prompt text |
-| position | INTEGER | Queue ordering |
-| status | TEXT | pending/processing/completed/failed |
-| agent | TEXT | Target agent |
-| attachments | TEXT | JSON array of attachment IDs |
+### `messages`
+
+Includes autoincrement `id`, stable `message_id`, `session_id`, `role`, `content`, and `created_at`.
+
+### `follow_up_queue`
+
+Includes `id`, `session_id`, `text`, `position`, legacy agent/model fields, `attachments`, `created_at`, `source`, `status`, `transcript`, `message_id`, `response_id`, `started_at`, `completed_at`, `error`, `working_directory`, `provider_id`, and `config_values_json`.
+
+### `providers`
+
+Stores provider ID, name, type, parser type, enabled state, priority, serialized config JSON, and timestamps.
 
 ## Design Decisions
 
-- **Pure-Go SQLite** (`modernc.org/sqlite`): Zero CGO dependencies for simple cross-compilation
-- **Process groups**: `Setpgid: true` + kill `-pid` ensures MCP child servers are terminated with the agent
-- **Ring buffer**: Fixed-size circular buffer avoids unbounded memory for SSE replay
-- **Per-session file mutexes**: `sync.Map` of `*sync.Mutex` for concurrent JSONL writes
-- **Idempotent migrations**: `ALTER TABLE ADD COLUMN` with silent failure for schema evolution
-- **Interface injection**: 7 optional interfaces for customizing title generation, handoff handling, MCP config, etc.
+- **Pure-Go SQLite** (`modernc.org/sqlite`): no CGO dependency for persistence
+- **Provider registry**: built-ins plus file/DB-backed customization without hard-coding Send paths
+- **Process groups**: `Setpgid: true` + kill `-pid` ensures child process cleanup
+- **Ring buffer**: bounded memory for SSE replay and reconnect correctness
+- **Per-session file mutexes**: serialize JSONL appends
+- **Idempotent migrations**: `ALTER TABLE ADD COLUMN` with tolerated existing-column failures
+- **Interface injection**: optional embedder hooks for MCP config, context/runtime, actions, handoff, titles, summaries, transcription, tool execution, I/O locking, and filesystem access

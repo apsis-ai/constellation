@@ -10,7 +10,7 @@ Go library for multiplexing AI agent CLI tools. Spawn, manage, and stream output
 
 ## Tooling
 
-- Go 1.24+
+- Go 1.25.0+
 - Use **bun** for any JS/TS scripting
 - Prefer TypeScript over Python for scripts
 

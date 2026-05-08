@@ -1,70 +1,82 @@
 # Broadcasting
 
-The broadcasting system provides real-time event streaming via SSE (Server-Sent Events) with reconnection support.
+The broadcasting system provides real-time event streaming with per-session ring buffers for reconnect support and a global notify channel for session lifecycle events.
 
 ## Session Events
 
-Each session has its own event stream. Events are published as the agent produces output:
+Each session has its own event stream. Event constants include:
 
-| Event Type | Description | Blocking |
-|------------|-------------|----------|
-| `chunk` | Text output from agent | No (dropped if subscriber is slow) |
+| Event Type | Description | Blocking publish |
+|------------|-------------|------------------|
+| `message` | Message record event | No |
+| `chunk` | Text output from agent | No |
+| `ack` | Prompt/message acknowledgement | No |
 | `action` | Tool/action status update | No |
-| `ask_user` | Agent is asking a question | Yes |
-| `done` | Agent completed | Yes |
-| `error` | Agent errored | Yes |
+| `done` | Agent/session completed | Yes |
+| `error` | Agent/session errored | Yes |
 | `status` | Session status changed | Yes |
-| `queue_done` | Queue item completed | Yes |
+| `flush_done` | Full-state flush completed | No |
+| UI block events | Structured UI card/block events | No |
+| `ui_response` | User response to a UI block | No |
 
-### Subscribing
+Ask-user prompts are carried through message/UI-block data rather than a dedicated blocking SSE event type.
+
+## Subscribing
 
 ```go
 broadcaster := mgr.GetBroadcaster()
 
-// Subscribe to a session
-events, replay, needsFlush, unsubscribe := broadcaster.SubscribeSession("session-123", 0)
-defer unsubscribe()
+events, done, replay, fullFlush := broadcaster.SubscribeSession("session-123", lastSeq)
+defer close(done)
 
-// Process replay events first (if reconnecting)
+if fullFlush {
+    refreshFullState()
+}
 for _, event := range replay {
     handleEvent(event)
 }
-
-// Then stream live events
 for event := range events {
     handleEvent(event)
 }
 ```
 
+`SubscribeSession(sessionID string, lastSeq uint64)` returns:
+
+1. live event channel
+2. `done` channel; close it to unsubscribe
+3. replay events after `lastSeq`, when available
+4. `fullFlush` flag when the client should reload state instead of applying replay only
+
 ## Ring Buffer & Reconnection
 
-Each session maintains a ring buffer (default 1024 events) with monotonic sequence numbers. When a client reconnects with a `lastSeq`:
+Each session maintains a fixed-size ring buffer with monotonic sequence numbers.
 
-1. **Events in buffer**: Returns all events after `lastSeq` as replay, then streams live
-2. **Gap detected** (buffer has wrapped): Returns `needsFlush = true`, signaling the client should do a full state refresh
-3. **No previous seq** (`lastSeq = 0`): Starts streaming from now, no replay
+- `lastSeq == 0`: request a full flush (`fullFlush = true`) and no replay
+- events after `lastSeq` are in buffer: replay them, then stream live events
+- `lastSeq` is older than buffer contents or ahead of current server seq: request a full flush
 
-This allows efficient reconnection without maintaining per-client state on the server.
+This allows reconnect without per-client server state while preserving correctness after gaps or restarts.
 
 ## Notify Stream
 
 A global notification stream broadcasts session-level events:
 
 ```go
-notifications, unsubscribe := broadcaster.SubscribeNotify()
-defer unsubscribe()
+notifications, done := broadcaster.SubscribeNotify()
+defer close(done)
 
 for event := range notifications {
-    // event.Type: "session_created", "session_deleted", "status"
+    // event.Type: session/status-style notification
     // event.SessionID: affected session
 }
 ```
 
+`SubscribeNotify()` returns a notification channel and a `done` channel for unsubscribe.
+
 ## Non-blocking vs Blocking
 
-- **Chunk/action events** are sent non-blocking — if a subscriber's channel is full, the event is dropped. This prevents slow clients from blocking agent output.
-- **Terminal events** (done, error, status) are sent with blocking semantics to ensure delivery.
+Most event publishing is non-blocking so slow subscribers do not stall agent output. `PublishSessionEvent()` uses blocking delivery only for `done`, `error`, and `status` events to improve terminal/status delivery.
 
 ## Concurrency
 
-The broadcaster is safe for concurrent use. Multiple subscribers can watch the same session simultaneously. Publishing and subscribing are protected by a read-write mutex.
+The broadcaster is safe for concurrent publishers and subscribers. Session buffers, subscriber maps, and notify subscribers are guarded by locks.

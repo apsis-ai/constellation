@@ -1,14 +1,16 @@
 # Queue System
 
-The queue system enables follow-up messages to be queued while an agent is processing, then executed sequentially when the agent completes.
+The queue system stores follow-up prompts while a session is active and processes them sequentially after the current agent run completes.
 
 ## How It Works
 
-1. While an agent is active, new messages are added to the queue via `AddToQueue()`
-2. When the agent completes, `ProcessNextFromQueue()` is called automatically
-3. The next pending item is popped atomically (DB transaction) and sent to the agent
-4. Events from queue processing are broadcast to SSE subscribers
-5. On completion, the next item is processed, continuing until the queue is empty
+1. Add an item with `AddToQueue(QueueAddRequest)`
+2. Constellation assigns the next 1-based pending `position`
+3. When the active agent completes, `ProcessNextFromQueue(sessionID)` runs automatically
+4. The next pending item is claimed atomically in SQLite and marked `processing`
+5. The item is sent through `Send()` with its provider/config/attachments/working directory
+6. On success it becomes `completed`; on error it becomes `failed`
+7. Processing continues until no pending items remain or the queue is paused
 
 ## Queue Item Lifecycle
 
@@ -21,38 +23,67 @@ pending ──► processing ──► completed
 ## Pause/Resume
 
 Queue processing can be paused per session:
-- Processing pauses automatically when `ask_user` is pending
-- `ResumeQueue()` unpauses and triggers the next item
+
 - `Stop()` pauses the queue for that session
+- Ask-user waits can pause processing until user input is handled
+- `ResumeQueue(sessionID)` unpauses and triggers the next pending item
 
 ## Ordering
 
-Items are ordered by a `position` field. The `ReorderQueue()` method accepts an ordered list of item IDs and updates their positions accordingly.
+Pending items are ordered by `position`, starting at `1`. `ReorderQueue(sessionID, itemIDs)` rewrites pending positions according to the provided item ID order.
+
+## Listing
+
+- `ListQueue(sessionID)` returns pending items only
+- `ListQueueAll(sessionID)` returns all statuses
+- `QueueLength(sessionID)` counts pending items
 
 ## Audio Queue Items
 
-Queue items can have `source: "audio"` with an attached audio file. When processed, the audio is transcribed via the configured `Transcriber` before sending to the agent. The transcript is stored on the queue item.
+Queue items can store `source`, `transcript`, and attachment metadata. Current queue processing sends `QueueItem.Text` through `SendRequest`; it does not automatically transcribe audio during `processQueueItem()`.
 
 ## Example
 
 ```go
-// Add follow-up while agent is busy
-mgr.AddToQueue("session-123", mux.QueueItem{
-    Text:  "Now refactor the tests",
-    Agent: "claude",
+first, err := mgr.AddToQueue(mux.QueueAddRequest{
+    SessionID:  "session-123",
+    Text:       "Now refactor the tests",
+    ProviderID: "claude",
 })
+if err != nil {
+    return err
+}
 
-// Add another
-mgr.AddToQueue("session-123", mux.QueueItem{
-    Text:  "Then update the README",
-    Agent: "claude",
+second, err := mgr.AddToQueue(mux.QueueAddRequest{
+    SessionID:  "session-123",
+    Text:       "Then update the README",
+    ProviderID: "claude",
 })
+if err != nil {
+    return err
+}
 
-// Check queue
-items, _ := mgr.ListQueue("session-123")
-// items[0].Text = "Now refactor the tests" (position 0)
-// items[1].Text = "Then update the README" (position 1)
+items, err := mgr.ListQueue("session-123")
+if err != nil {
+    return err
+}
+// items[0].Position == 1
+// items[1].Position == 2
 
-// Reorder if needed
-mgr.ReorderQueue("session-123", []string{items[1].ID, items[0].ID})
+items, err = mgr.ReorderQueue("session-123", []string{second.ID, first.ID})
+if err != nil {
+    return err
+}
 ```
+
+## Updating and Deleting
+
+```go
+updated, err := mgr.UpdateQueueItem("session-123", first.ID, mux.QueueItemUpdate{
+    Text: "Updated prompt text",
+})
+
+err = mgr.DeleteQueueItem("session-123", first.ID)
+```
+
+Only pending items are intended to be edited, deleted, or reordered.

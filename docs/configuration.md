@@ -4,7 +4,7 @@
 
 `Config` is passed to `NewManager()` to initialize the library.
 
-Constellation currently keeps the `agents-mux` module path and binary name for compatibility. Config examples below use the library API, independent of the transitional CLI name.
+Constellation's Go module path is `github.com/apsis-ai/constellation`. The compatibility CLI binary name remains `agents-mux`.
 
 ```go
 cfg := mux.Config{
@@ -23,12 +23,12 @@ cfg := mux.Config{
     // Default: 1024
     RingBufferSize: 1024,
 
-    // Optional: Duration before auto-handoff on idle.
+    // Optional: Duration before idle lifecycle handling.
     // Default: 10 minutes
     IdleTimeout: 10 * time.Minute,
 
-    // Optional: Environment variables for spawned agent processes.
-    // Default: os.Environ()
+    // Optional: environment for spawned agent processes.
+    // Default when nil: os.Environ()
     AgentEnv: func() []string {
         return os.Environ()
     },
@@ -37,11 +37,27 @@ cfg := mux.Config{
 
 ## Optional Interfaces
 
-All interfaces are optional. The library provides sensible defaults or skips the feature when not configured.
+All interfaces are optional. Some features are skipped or no-op when their interface is not configured.
+
+### AgentContextProvider / AgentRuntimeProvider
+
+Adds per-session/provider prompt context or runtime environment after working directory resolution.
+
+```go
+type AgentContextProvider interface {
+    ContextForAgent(sessionID, providerID string) string
+}
+
+type AgentRuntimeProvider interface {
+    PrepareAgentRuntime(req AgentRuntimeRequest) (*AgentRuntime, error)
+}
+```
+
+`AgentRuntime.Env` entries are merged into the subprocess environment.
 
 ### MCPConfigProvider
 
-Generates MCP (Model Context Protocol) JSON configuration for agent subprocesses.
+Generates MCP JSON configuration for provider subprocesses.
 
 ```go
 type MCPConfigProvider interface {
@@ -49,11 +65,9 @@ type MCPConfigProvider interface {
 }
 ```
 
-The returned JSON string is written to a temp file and passed via `--mcp-config` flag to the agent CLI.
-
 ### ActionSummaryFormatter
 
-Converts tool calls into human-readable summaries for the action status stream.
+Converts tool calls into human-readable action summaries.
 
 ```go
 type ActionSummaryFormatter interface {
@@ -65,7 +79,7 @@ Default: `DefaultActionFormatter` converts `tool_name` to `"Tool name"`.
 
 ### HandoffHandler
 
-Called when a handoff is triggered (idle timeout, token exhaustion, screenshot limit).
+Called by automatic handoff trigger paths.
 
 ```go
 type HandoffHandler interface {
@@ -73,11 +87,11 @@ type HandoffHandler interface {
 }
 ```
 
-Default: Writes a markdown file to `HandoffDir`.
+If no handler is configured, automatic triggers clear/reset session state but do not write custom external handoff output. The public `Manager.HandleHandoff(...)` helper writes markdown to `HandoffDir`.
 
 ### TitleGenerator
 
-Generates session titles from the first user prompt.
+Generates session titles from prompts.
 
 ```go
 type TitleGenerator interface {
@@ -85,11 +99,7 @@ type TitleGenerator interface {
 }
 ```
 
-Default: Calls `claude` CLI with a 5-word summary prompt, falls back to first 5 words of the prompt.
-
 ### SummaryGenerator
-
-Generates session summaries from conversation history.
 
 ```go
 type SummaryGenerator interface {
@@ -97,9 +107,11 @@ type SummaryGenerator interface {
 }
 ```
 
+The interface exists for embedder integration, but current `debounceSummary` / `generateSummary` paths are stubs. Do not rely on automatic summary generation yet.
+
 ### Transcriber
 
-Abstracts speech-to-text for audio queue items.
+Abstracts speech-to-text.
 
 ```go
 type Transcriber interface {
@@ -107,11 +119,11 @@ type Transcriber interface {
 }
 ```
 
-A built-in `whisper.NewTranscriber()` implementation is provided using `whisper.cpp`.
+A built-in `whisper.NewTranscriber()` implementation is available, but queue processing currently sends queue text directly and does not transcribe audio queue items during `ProcessNextFromQueue()`.
 
 ### ToolExecutor
 
-Handles tool calls from HTTP-based agent loops (not used by subprocess agents).
+Handles tool calls from HTTP-based agent loops; subprocess agents normally use MCP instead.
 
 ```go
 type ToolExecutor interface {
@@ -119,26 +131,35 @@ type ToolExecutor interface {
 }
 ```
 
-## Environment Variables
+## Provider and Discovery Config
 
-### Agent Process Isolation
+| Source | Purpose |
+|--------|---------|
+| `CONSTELLATION_PROVIDER_CONFIG_DIR` | Override directory for provider JSON config files |
+| `CONSTELLATION_DISCOVERY_CACHE_DIR` | Override model/provider discovery cache directory |
 
-The library automatically isolates agent subprocess environments:
+`NewManager()` creates a `ProviderRegistry`, seeds built-in provider config files, loads provider files, validates them, and syncs enabled providers into SQLite and memory.
 
-| Variable | Purpose |
-|----------|---------|
-| `CODEX_HOME` | Isolated Codex config directory |
-| `OPENCODE_CONFIG_DIR` | Isolated OpenCode config directory |
+## Agent Process Environment
 
-Claude Code-specific environment variables (`CLAUDE_CODE_*`, `ENABLE_CLAUDE_CODE_*`) are stripped from spawned processes.
+By default, subprocesses inherit `os.Environ()`. Isolation is opt-in:
 
-### Whisper Configuration
+```go
+envProvider := mux.NewDefaultEnvProvider(baseDir)
+cfg.AgentEnv = envProvider.AgentEnv
+```
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `WHISPER_BIN` | `whisper-cli` | Path to whisper binary |
-| `WHISPER_MODEL` | `base.en` | Model name |
-| `WHISPER_MODEL_PATH` | — | Full path to model file |
+`DefaultEnvProvider` strips Claude Code-specific variables and sets isolated `CODEX_HOME` and `OPENCODE_CONFIG_DIR` values. If `Config.AgentEnv` is nil, these isolated values are not applied automatically.
+
+## Whisper Configuration
+
+| Variable | Default / Behavior | Purpose |
+|----------|--------------------|---------|
+| `WHISPER_BIN` | First binary checked, then `whisper-cpp`, `whisper`, `main` on PATH | Whisper executable |
+| `WHISPER_MODEL` | `ggml-medium.bin` | Model filename/name |
+| `WHISPER_MODEL_PATH` | Overrides model path | Full model path |
+
+`whisper.NewTranscriber()` returns `(*Transcriber, error)`.
 
 ## Directory Structure
 
@@ -150,9 +171,9 @@ After initialization, the library creates:
 ├── sessions/
 │   └── {session-id}/
 │       ├── conversation.jsonl   # Rich conversation log
-│       ├── summary.json         # Session summary
+│       ├── summary.json         # Session summary when written
 │       └── attachments/
 │           └── {id}_{filename}  # Uploaded files
 └── handoffs/
-    └── {session-id}.md    # Handoff state files
+    └── {sessionID}_{unix}.md    # Manual handoff files
 ```
